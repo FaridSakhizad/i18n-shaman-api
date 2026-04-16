@@ -1,4 +1,6 @@
 import * as mongoose from 'mongoose';
+import { KeyTagSchema } from './KeyTag.schema';
+import { TagSchema } from './Tag.schema';
 
 export const KeySchema = new mongoose.Schema({
   id: String,
@@ -11,4 +13,8 @@ export const KeySchema = new mongoose.Schema({
   pathCache: String,
   createdAt: Number,
   updatedAt: Number,
+  tags: {
+    type: [KeyTagSchema],
+    default: []
+  },
 });

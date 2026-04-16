@@ -10,6 +10,7 @@ export class GetProjectByIdDto {
   sortBy?: TSortBy;
   sortDirection?: TSortDirection;
   filters?: string[];
+  tags?: string[];
   searchQuery?: string;
   searchParams?: string[];
 }

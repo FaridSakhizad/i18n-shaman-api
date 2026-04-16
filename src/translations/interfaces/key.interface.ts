@@ -1,6 +1,10 @@
 import { Document } from 'mongoose';
 import { IKeyValue } from './keyValue.interface';
 
+export interface IKeyTag {
+  id: string;
+}
+
 export interface IKey extends Document {
   userId: string;
   projectId: string;
@@ -12,4 +16,5 @@ export interface IKey extends Document {
   type: string;
   pathCache: string;
   createdAt: Date;
+  tags: IKeyTag[];
 }

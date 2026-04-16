@@ -7,16 +7,20 @@ import { js2xml } from 'xml-js';
 import {
   EFilter,
   ESearchParams,
+  IAddTagsToEntities,
+  IAssignTagsToEntities, ICreateTag,
+  IDeleteTag,
+  IEditTag,
   ILanguage,
   ILanguageMap,
   IProject,
   IProjectLanguage,
-  IStructuredProjectData,
+  IStructuredProjectData, ITag,
 } from './interfaces/project.interface';
 
 import { EStatusCode, IResponse } from '../interfaces';
 
-import { IKey } from './interfaces/key.interface';
+import { IKey, IKeyTag } from './interfaces/key.interface';
 
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddLanguageDto } from './dto/add-language.dto';
@@ -30,7 +34,7 @@ import { IRawLanguage } from './interfaces/rawLanguage.interface';
 import { IKeyValue } from './interfaces/keyValue.interface';
 import { KeyHelperService } from './keyHelper.service';
 import { GetProjectByIdDto } from './dto/get-project-by-id.dto';
-import { findIndex } from 'rxjs';
+import { EditTagDto } from './dto/tags.dto';
 
 @Injectable()
 export class Service {
@@ -86,6 +90,241 @@ export class Service {
     });
 
     return userProjects;
+  }
+
+  async createTag(data: ICreateTag): Promise<IResponse> {
+    const { projectId, tagName, userId } = data;
+
+    const project = await this.projectModel
+      .findOne({
+        projectId,
+        userId,
+      })
+      .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    if (!project.tags) {
+      project.tags = []
+    }
+
+    const colorIndex = Math.floor(Math.random() * (24 - 1 + 1) + 1);
+
+    project.tags.push({
+      id: Math.random().toString(16).substring(2),
+      name: tagName,
+      color: `color${colorIndex}`,
+    });
+
+    await project.save();
+
+    return {
+      statusCode: EStatusCode.OK,
+      metaData: {
+        tags: project.tags,
+      },
+    };
+  }
+
+  async addTagsToEntities(data: IAddTagsToEntities): Promise<IResponse> {
+    const { projectId, entityIds, tagName, userId, color } = data;
+
+    const project = await this.projectModel
+      .findOne({
+        projectId,
+        userId,
+      })
+      .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const { tags = [] } = project;
+
+    const tagExists = (tags && tags.length) ? tags.find((tag: ITag) => tag.name === tagName) : null;
+
+    const newTagId = Math.random().toString(16).substring(2);
+
+    if (!tagExists) {
+      const newTag: ITag = {
+        id: newTagId,
+        name: tagName,
+        color,
+      };
+
+      if (!project.tags) {
+        project.tags = [];
+      }
+
+      project.tags.push(newTag);
+
+      await project.save();
+    }
+
+    const entities = await this.keyModel.find({
+      userId,
+      projectId,
+      id: entityIds,
+    });
+
+    entities.forEach((entity) => {
+      if (!entity.tags) {
+        entity.tags = [];
+      }
+
+      entity.tags.push({
+        id: newTagId,
+      });
+
+      entity.save();
+    });
+
+    return {
+      statusCode: EStatusCode.OK,
+      metaData: {
+        tags: project.tags,
+      },
+    };
+  }
+
+  async assignTagToEntities(data: IAssignTagsToEntities): Promise<IResponse> {
+    const { projectId, entityIds, tagId, userId } = data;
+
+    const entities = await this.keyModel.find({
+      userId,
+      projectId,
+      id: entityIds,
+    });
+
+    const filteredEntities = entities.filter(({ tags }) => !tags || tags.every((tag) => tag.id !== tagId));
+
+    filteredEntities.forEach((entity) => {
+      if (!entity.tags) {
+        entity.tags = [];
+      }
+
+      entity.tags.push({
+        id: tagId,
+      });
+
+      entity.save();
+    });
+
+    return {
+      statusCode: EStatusCode.OK,
+      metaData: {
+        entities: filteredEntities
+      },
+    };
+  }
+
+  async detachTagFromEntities(data: IAssignTagsToEntities): Promise<IResponse> {
+    const {
+      projectId,
+      entityIds,
+      tagId,
+      userId
+    } = data;
+
+    const entities = await this.keyModel.find({
+      userId,
+      projectId,
+      id: entityIds,
+    });
+
+    entities.forEach((entity) => {
+      entity.tags = entity.tags.filter((tag) => tag.id !== tagId);
+
+      entity.save();
+    });
+
+    return {
+      statusCode: EStatusCode.OK,
+      metaData: {
+        entities,
+      },
+    };
+  }
+
+  async deleteTag(data: IDeleteTag): Promise<IResponse> {
+    const {
+      projectId,
+      tagId,
+      userId
+    } = data;
+
+    const project = await this.projectModel
+      .findOne({
+        projectId,
+        userId,
+      })
+      .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    project.tags = project.tags.filter((tag) => tag.id !== tagId);
+
+    await project.save();
+
+    const entities = await this.keyModel.find({
+      userId,
+      projectId,
+      'tags.id': tagId,
+    });
+
+    entities.forEach((entity: IKey) => {
+      entity.tags = entity.tags.filter((tag) => tag.id !== tagId);
+
+      entity.save();
+    });
+
+    return {
+      statusCode: EStatusCode.OK,
+      metaData: {
+        tags: project.tags,
+      },
+    };
+  }
+
+  async updateTag(data: IEditTag): Promise<IResponse> {
+    const {
+      projectId,
+      userId,
+      id,
+      name,
+      color,
+      customColor,
+    } = data;
+
+    const project = await this.projectModel.findOne({
+      projectId,
+      userId,
+      'tags.id': id,
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const tag = project.tags.find((tag) => tag.id === id);
+
+    tag.name = name;
+    tag.color = color;
+    tag.customColor = customColor;
+
+    await project.save();
+
+    return {
+      statusCode: EStatusCode.OK,
+      metaData: {
+        ok: 'ok',
+      },
+    };
   }
 
   async createProjectEntity(createEntityDto: CreateEntityDto) {
@@ -619,6 +858,7 @@ export class Service {
       sortBy,
       sortDirection = 'asc',
       filters,
+      tags = [],
       searchQuery,
       searchParams,
     } = params;
@@ -915,6 +1155,10 @@ export class Service {
     Object.entries(sortParams).map(([key, value]) => {
       sortParamsForAggregation[key] = value === 'asc' ? 1 : -1;
     });
+
+    if (tags.length > 0) {
+      findParams['tags.id'] = { $in: tags.filter(Boolean) };
+    }
 
     const searchResult = await this.keyModel.aggregate([
       {

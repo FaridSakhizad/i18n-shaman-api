@@ -10,11 +10,12 @@ import {
   UploadedFiles,
   UseInterceptors,
   UnauthorizedException,
+  HttpStatus, UseGuards,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { Service } from './service';
-import { EExportFormats, ILanguage, IProject } from './interfaces/project.interface';
+import { EExportFormats, IEditTag, ILanguage, IProject } from './interfaces/project.interface';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddLanguageDto } from './dto/add-language.dto';
 import { CreateEntityDto } from './dto/create-entity.dto';
@@ -24,11 +25,13 @@ import { AddMultipleLanguagesDto } from './dto/add-multiple-languages.dto';
 import { MultipleLanguageVisibilityDto } from './dto/multiple-languages-visibility.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
 import { IKey } from './interfaces/key.interface';
-import { EStatusCode, IResponse } from '../interfaces';
+import { ApiResponse, EStatusCode, IResponse, ProblemDetails } from '../interfaces';
 import { GetProjectByIdDto, TSortBy, TSortDirection } from './dto/get-project-by-id.dto';
 import { DeleteProjectEntitiesDto } from './dto/delete-entities.dto';
 import { GetEntitiesChildrenByIdsDto } from './dto/get-entities-children-by-ids.dto';
 import { MoveProjectEntities } from './dto/MoveProjectEntities.dto';
+import { AddTagsToEntityDto, CreateTagDto, DeleteTagDto, EditTagDto } from './dto/tags.dto';
+import { AssignTagToEntitiesDto } from './dto/tags.dto';
 
 @Controller()
 export class TransController {
@@ -75,6 +78,7 @@ export class TransController {
     @Query('sortBy') sortBy: TSortBy,
     @Query('sortDirection') sortDirection: TSortDirection,
     @Query('filters') filters: string,
+    @Query('tags') tags: string,
     @Query('search') searchQuery: string,
     @Query('search_params') searchParams: string,
     @Req() req,
@@ -94,6 +98,7 @@ export class TransController {
       sortBy,
       sortDirection,
       filters: filters ? filters.split(',') : [],
+      tags: tags ? tags.split(',') : [],
       searchQuery,
       searchParams: searchQuery && searchParams ? searchParams.split(',') : [],
     } as GetProjectByIdDto);
@@ -215,6 +220,258 @@ export class TransController {
   @Post('addMultipleLanguages')
   addMultipleProjectLanguages(@Body() addMultipleLanguagesDto: AddMultipleLanguagesDto): Promise<IProject | Error> {
     return this.Service.addMultipleProjectLanguages(addMultipleLanguagesDto);
+  }
+
+  @Post('createTag')
+  async createTag(
+    @Req() req,
+    @Body() createTagDto: CreateTagDto,
+  ) {
+    const nowDate = new Date().toISOString();
+
+    const { session, sessionID } = req;
+
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Error: Denied');
+    }
+
+    const result = await this.Service.createTag({
+      ...createTagDto,
+      userId: session.userId,
+    });
+
+    if (result) {
+      return {
+        success: true,
+        data: {
+          ...result.metaData,
+        },
+        requestId: req.headers['x-request-id'],
+        timestamp: nowDate,
+        path: req.url as string,
+      };
+    }
+
+    return {
+      type: '',
+      title: 'Get Update Password Token Failed',
+      status: HttpStatus.OK,
+      detail: 'Error: Forbidden',
+      code: '403',
+      errors: [],
+      requestId: req.headers['x-request-id'],
+      timestamp: nowDate,
+    } as ProblemDetails;
+  }
+
+  @Post('addTagsToEntities')
+  async addTagsToEntities(
+    @Req() req,
+    @Body() addTagsToEntityDto: AddTagsToEntityDto,
+  ): Promise<ProblemDetails | ApiResponse<any>> {
+    const nowDate = new Date().toISOString();
+
+    const { session, sessionID } = req;
+
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Error: Denied');
+    }
+
+    const result = await this.Service.addTagsToEntities({
+      ...addTagsToEntityDto,
+      userId: session.userId,
+    });
+
+    if (result) {
+      return {
+        success: true,
+        data: {
+          ...result.metaData,
+        },
+        requestId: req.headers['x-request-id'],
+        timestamp: nowDate,
+        path: req.url as string,
+      };
+    }
+
+    return {
+      type: '',
+      title: 'Get Update Password Token Failed',
+      status: HttpStatus.OK,
+      detail: 'Error: Forbidden',
+      code: '403',
+      errors: [],
+      requestId: req.headers['x-request-id'],
+      timestamp: nowDate,
+    } as ProblemDetails;
+  }
+
+  @Post('assignTagToEntities')
+  async assignTagToEntities(
+    @Req() req,
+    @Body() assignTagToEntitiesDto: AssignTagToEntitiesDto,
+  ): Promise<ProblemDetails | ApiResponse<any>> {
+    const nowDate = new Date().toISOString();
+
+    const { session, sessionID } = req;
+
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Error: Denied');
+    }
+
+    const result = await this.Service.assignTagToEntities({
+      ...assignTagToEntitiesDto,
+      userId: session.userId,
+    });
+
+    if (result) {
+      return {
+        success: true,
+        data: {
+          ...result.metaData,
+        },
+        requestId: req.headers['x-request-id'],
+        timestamp: nowDate,
+        path: req.url as string,
+      };
+    }
+
+    return {
+      type: '',
+      title: 'Get Update Password Token Failed',
+      status: HttpStatus.OK,
+      detail: 'Error: Forbidden',
+      code: '403',
+      errors: [],
+      requestId: req.headers['x-request-id'],
+      timestamp: nowDate,
+    } as ProblemDetails;
+  }
+
+  @Post('updateTag')
+  async updateTag(
+    @Req() req,
+    @Body() editTagDto: EditTagDto,
+  ): Promise<ProblemDetails | ApiResponse<any>> {
+    const nowDate = new Date().toISOString();
+
+    const { session, sessionID } = req;
+
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Error: Denied');
+    }
+
+    const result = await this.Service.updateTag({
+      ...editTagDto as IEditTag,
+      userId: session.userId,
+    });
+
+    if (result) {
+      return {
+        success: true,
+        data: {
+          ...result.metaData,
+        },
+        requestId: req.headers['x-request-id'],
+        timestamp: nowDate,
+        path: req.url as string,
+      };
+    }
+
+    return {
+      type: '',
+      title: 'Edit Tag Failed',
+      status: HttpStatus.OK,
+      detail: 'Error: Forbidden',
+      code: '403',
+      errors: [],
+      requestId: req.headers['x-request-id'],
+      timestamp: nowDate,
+    } as ProblemDetails;
+  }
+
+  @Post('deleteTag')
+  async deleteTag(
+    @Req() req,
+    @Body() deleteTagDto: DeleteTagDto,
+  ): Promise<ProblemDetails | ApiResponse<any>> {
+    const nowDate = new Date().toISOString();
+
+    const { session, sessionID } = req;
+
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Error: Denied');
+    }
+
+    const result = await this.Service.deleteTag({
+      ...deleteTagDto,
+      userId: session.userId,
+    });
+
+    if (result) {
+      return {
+        success: true,
+        data: {
+          ...result.metaData,
+        },
+        requestId: req.headers['x-request-id'],
+        timestamp: nowDate,
+        path: req.url as string,
+      };
+    }
+
+    return {
+      type: '',
+      title: 'Delete Tag Failed',
+      status: HttpStatus.OK,
+      detail: 'Error: Forbidden',
+      code: '403',
+      errors: [],
+      requestId: req.headers['x-request-id'],
+      timestamp: nowDate,
+    } as ProblemDetails;
+  }
+
+  @Post('detachTagFromEntities')
+  async detachTagFromEntities(
+    @Req() req,
+    @Body() assignTagToEntitiesDto: AssignTagToEntitiesDto,
+  ): Promise<ProblemDetails | ApiResponse<any>> {
+    const nowDate = new Date().toISOString();
+
+    const { session, sessionID } = req;
+
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Error: Denied');
+    }
+
+    const result = await this.Service.detachTagFromEntities({
+      ...assignTagToEntitiesDto,
+      userId: session.userId,
+    });
+
+    if (result) {
+      return {
+        success: true,
+        data: {
+          ...result.metaData,
+        },
+        requestId: req.headers['x-request-id'],
+        timestamp: nowDate,
+        path: req.url as string,
+      };
+    }
+
+    return {
+      type: '',
+      title: 'Get Update Password Token Failed',
+      status: HttpStatus.OK,
+      detail: 'Error: Forbidden',
+      code: '403',
+      errors: [],
+      requestId: req.headers['x-request-id'],
+      timestamp: nowDate,
+    } as ProblemDetails;
   }
 
   @Delete('deleteLanguage')

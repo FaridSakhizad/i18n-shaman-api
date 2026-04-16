@@ -1,6 +1,13 @@
 import { Document } from 'mongoose';
 import { IKey } from './key.interface';
 
+export interface ITag {
+  id: string;
+  name: string;
+  color: string;
+  customColor?: string | null;
+}
+
 export interface IProject extends Document {
   projectName: string;
   projectId: string;
@@ -11,6 +18,7 @@ export interface IProject extends Document {
   keysTotalCount?: number;
   upstreamParents?: any;
   subfolder?: IKey;
+  tags: ITag[];
 }
 
 export interface ILanguage {
@@ -79,4 +87,36 @@ export interface ISearchParams {
   [ESearchParams.skipValues]: boolean;
   [ESearchParams.skipFolders]: boolean;
   [ESearchParams.skipComponents]: boolean;
+}
+
+export interface ICreateTag {
+  userId: string;
+  projectId: string;
+  tagName: string;
+}
+
+export interface IAddTagsToEntities {
+  userId: string;
+  projectId: string;
+  entityIds: string[];
+  tagName: string;
+  color: string;
+}
+
+export interface IAssignTagsToEntities {
+  userId: string;
+  projectId: string;
+  entityIds: string[];
+  tagId: string;
+}
+
+export interface IDeleteTag {
+  userId: string;
+  projectId: string;
+  tagId: string;
+}
+
+export interface IEditTag extends ITag {
+  userId: string;
+  projectId: string;
 }
