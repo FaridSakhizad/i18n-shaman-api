@@ -24,7 +24,7 @@ export class AuthService {
     private readonly tokenService: TokenService,
   ) {}
 
-  async createUser({ email, password }: RegisterDto): Promise<IPublicUserData | Error> {
+  async createUser({ email, password }: RegisterDto): Promise<IPublicUserData> {
     const encryptedPassword = await bcrypt.hash(password, 12);
 
     const existingUser = await this.userModel.findOne({ email }).exec();
@@ -64,7 +64,7 @@ export class AuthService {
     await this.mailService.sendEmailVerification(email, verifyEmailTokenDocument.token);
   }
 
-  async createEmailVerificationSecurityToken(userId: string): Promise<string> {
+  async createEmailVerificationSecurityToken(userId: string, verificationToken: string): Promise<string> {
     await this.tokenModel.deleteMany({
       userId,
       type: 'email_verification_security',
@@ -74,6 +74,9 @@ export class AuthService {
       userId,
       type: 'email_verification_security',
       expiresInMinutes: 60,
+      metadata: {
+        verificationToken,
+      },
     });
 
     return emailVerificationSecurityToken ? emailVerificationSecurityToken.token : null;
@@ -102,23 +105,12 @@ export class AuthService {
       type: ['email_verification', 'email_verification_security'],
     });
 
-    const response = {
-      success: true,
-      data: '',
-    };
-
     if (updateResult.matchedCount < 1) {
-      response.success = false;
-      response.data = 'User Not Found';
-
-      return response;
+      throw new UnauthorizedException('User not found');
     }
 
     if (updateResult.matchedCount > 0 && updateResult.modifiedCount < 1) {
-      response.success = false;
-      response.data = 'Email Already Verified';
-
-      return response;
+      throw new ConflictException('Email already verified');
     }
 
     return {
@@ -127,7 +119,7 @@ export class AuthService {
     };
   }
 
-  async loginUser({ email, password }: LoginDto, session): Promise<IPublicUserData | Error> {
+  async loginUser({ email, password }: LoginDto, session): Promise<IPublicUserData> {
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
@@ -157,11 +149,11 @@ export class AuthService {
     return 'ok';
   }
 
-  async verifyUser(userId: string): Promise<IPublicUserData | Error> {
+  async verifyUser(userId: string): Promise<IPublicUserData> {
     const user = await this.userModel.findOne({ _id: userId }).exec();
 
     if (!user) {
-      return new ConflictException('User Not Found');
+      throw new ConflictException('User Not Found');
     }
 
     const { _id, email, preferences } = user;
@@ -175,6 +167,10 @@ export class AuthService {
 
   async resetPasswordRequest(email: string): Promise<{ userId: string; resetToken: string }> {
     const user = await this.userModel.findOne({ email }).exec();
+
+    if (!user) {
+      throw new ConflictException('User Not Found');
+    }
 
     await this.tokenModel.deleteMany({
       userId: user._id,
@@ -195,7 +191,7 @@ export class AuthService {
     };
   }
 
-  async createPasswordResetSecurityToken(userId: string): Promise<string> {
+  async createPasswordResetSecurityToken(userId: string, resetToken: string): Promise<string> {
     await this.tokenModel.deleteMany({
       userId,
       type: 'password_reset_security',
@@ -205,6 +201,9 @@ export class AuthService {
       userId,
       type: 'password_reset_security',
       expiresInMinutes: 60,
+      metadata: {
+        resetToken,
+      },
     });
 
     return resetSecurityTokenDocument ? resetSecurityTokenDocument.token : null;
@@ -228,6 +227,10 @@ export class AuthService {
 
   async verifyUserPassword(userId: string, password: string): Promise<boolean> {
     const user = await this.userModel.findOne({ _id: userId });
+
+    if (!user) {
+      return false;
+    }
 
     return await bcrypt.compare(password, user.password);
   }

@@ -1,13 +1,30 @@
-import { Body, Req, ConflictException, Controller, Get, Post, Query, HttpStatus, Inject } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Req,
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Post,
+  Query,
+  Inject,
+  NotAcceptableException,
+  NotFoundException,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto, LogoutDto } from './dto/login.dto';
+import { LoginDto } from './dto/login.dto';
 import { RegisterDto, SetNewPasswordDto } from './dto/register.dto';
-import { IResetPasswordResponse, IPublicUserData, IUpdatePassword } from './interfaces/user.interface';
-import { ApiResponse, ProblemDetails } from '../interfaces';
+import { IPublicUserData, IUpdatePassword } from './interfaces/user.interface';
+import { ApiResponse } from '../interfaces';
 import { TokenService } from './token.service';
 import { ValidationService } from '../validation/validation.servise';
 import { Model } from 'mongoose';
 import { IToken } from './interfaces/token.interface';
+import { AuthGuard } from './auth.guard';
+import { CurrentUserId } from './current-user-id.decorator';
+import { createApiResponse } from '../common/http-response';
 
 @Controller('auth')
 export class AuthController {
@@ -21,145 +38,74 @@ export class AuthController {
   ) {}
 
   @Post('login')
-  async login(@Body() loginDto: LoginDto, @Req() req): Promise<IPublicUserData | Error> {
-    return this.authService.loginUser(loginDto, req.session);
+  async login(@Body() loginDto: LoginDto, @Req() req): Promise<ApiResponse<IPublicUserData>> {
+    const result = await this.authService.loginUser(loginDto, req.session);
+
+    return createApiResponse(req, result);
   }
 
   @Post('logout')
-  async logout(@Req() req, @Body() logoutDto: LogoutDto): Promise<string | Error> {
-    const { userId } = logoutDto;
-
+  @UseGuards(AuthGuard)
+  async logout(@Req() req): Promise<ApiResponse<{ message: string }>> {
     await req.session.destroy();
 
-    return this.authService.logoutUser(userId);
+    return createApiResponse(req, { message: 'ok' });
   }
 
   @Post('register')
-  async register(@Req() req, @Body() registerDto: RegisterDto): Promise<ApiResponse<IPublicUserData> | ProblemDetails> {
-    const nowDate = new Date().toISOString();
-
+  async register(@Req() req, @Body() registerDto: RegisterDto): Promise<ApiResponse<IPublicUserData>> {
     if (!registerDto.email || !registerDto.password) {
-      return {
-        type: '',
-        title: 'Registration Failed',
-        status: HttpStatus.BAD_REQUEST,
-        detail: 'Insufficient credentials',
-        code: '400',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      throw new BadRequestException({
+        error: 'Registration Failed',
+        message: 'Insufficient credentials',
+      });
     }
 
-    let data;
+    const data = await this.authService.createUser(registerDto);
+    const { id: newUserId, email } = data as IPublicUserData;
 
-    try {
-      data = await this.authService.createUser(registerDto);
+    await this.authService.initEmailVerification(email, newUserId.toString());
 
-      const { id: newUserId, email } = data;
-
-      await this.authService.initEmailVerification(email, newUserId.toString());
-    } catch (error) {
-      const body = error.getResponse() as any;
-
-      return {
-        type: '',
-        title: 'Registration Failed',
-        status: HttpStatus.INTERNAL_SERVER_ERROR,
-        detail: body.message,
-        code: body.statusCode,
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
-    }
-
-    return {
-      success: true,
-      data,
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    return createApiResponse(req, data);
   }
-
-  //: Promise<ApiResponse<any> | ProblemDetails>
 
   @Post('validateVerificationToken')
   async validateVerificationToken(@Req() req, @Body() { verificationToken }: { verificationToken: string }) {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
 
-    const nowDate = new Date().toISOString();
-
     if (!verificationTokenDocument) {
-      return {
-        type: '',
-        title: 'Verification Token is Invalid',
-        status: HttpStatus.BAD_REQUEST,
-        detail: 'Error: Forbidden',
-        code: '400',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      throw new BadRequestException({
+        error: 'Verification Token is Invalid',
+        message: 'Verification token is invalid or expired',
+      });
     }
 
     const { token, used } = verificationTokenDocument;
 
-    return {
-      success: !used && verificationToken === token,
-      data: { token, used },
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    return createApiResponse(req, {
+      token,
+      used,
+      valid: !used && verificationToken === token,
+    });
   }
 
   @Post('getEmailVerificationSecurityToken')
   async getEmailVerificationSecurityToken(@Req() req, @Body() { verificationToken }: { verificationToken: string }) {
-    console.log('getEmailVerificationSecurityToken');
-    console.log('verificationToken', verificationToken);
-
-    const verificationTokenDocument = await this.tokenModel.findOne({
-      token: verificationToken,
-      type: 'email_verification',
-    });
-
-    const nowDate = new Date().toISOString();
+    const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
 
     if (!verificationTokenDocument) {
-      return {
-        type: '',
-        title: 'Verification Token not Found',
-        status: HttpStatus.NOT_FOUND,
-        detail: 'Error: Forbidden',
-        code: '400',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      throw new NotFoundException({
+        error: 'Verification Token not Found',
+        message: 'Verification token is invalid or expired',
+      });
     }
 
-    console.log('verificationTokenDocument', verificationTokenDocument);
+    const emailVerificationSecurityToken = await this.authService.createEmailVerificationSecurityToken(
+      verificationTokenDocument.userId.toString(),
+      verificationToken,
+    );
 
-    const emailVerificationSecurityToken = await this.authService.createEmailVerificationSecurityToken(verificationTokenDocument.userId.toString());
-
-    console.log('emailVerificationSecurityToken', emailVerificationSecurityToken);
-    console.log(' ');
-    console.log(' ');
-    console.log('*');
-    console.log(' ');
-    console.log(' ');
-
-    return {
-      success: true,
-      data: {
-        token: emailVerificationSecurityToken,
-      },
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    return createApiResponse(req, { token: emailVerificationSecurityToken });
   }
 
   @Post('verifyEmail')
@@ -167,19 +113,22 @@ export class AuthController {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
     const verificationSecurityTokenDocument = await this.tokenService.verifyToken(verificationSecurityToken, 'email_verification_security');
 
-    const nowDate = new Date().toISOString();
-
     if (!verificationSecurityTokenDocument || !verificationTokenDocument) {
-      return {
-        type: '',
-        title: 'Verification Security Token is Invalid',
-        status: HttpStatus.BAD_REQUEST,
-        detail: 'Error: Forbidden',
-        code: '400',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      throw new BadRequestException({
+        error: 'Verification Security Token is Invalid',
+        message: 'Verification token is invalid or expired',
+      });
+    }
+
+    const tokensBelongToSameUser =
+      verificationSecurityTokenDocument.userId.toString() === verificationTokenDocument.userId.toString()
+      && verificationSecurityTokenDocument.metadata?.verificationToken === verificationToken;
+
+    if (!tokensBelongToSameUser) {
+      throw new ForbiddenException({
+        error: 'Verification Token Mismatch',
+        message: 'Verification token mismatch',
+      });
     }
 
     const emailVerificationResult = await this.authService.verifyEmail(
@@ -189,36 +138,28 @@ export class AuthController {
 
     const { token, used } = verificationSecurityTokenDocument;
 
-    return {
+    return createApiResponse(req, {
+      token,
+      used,
+      message: emailVerificationResult.data,
       success: emailVerificationResult.success,
-      data: {
-        token,
-        used,
-        message: emailVerificationResult.data,
-      },
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    });
   }
 
   @Get('verifyUser')
-  async verify(@Req() req): Promise<IPublicUserData | Error> {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async verify(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<IPublicUserData>> {
+    const result = await this.authService.verifyUser(userId);
 
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      return new ConflictException('Error: Invalid Session');
-    }
-
-    return this.authService.verifyUser(session.userId);
+    return createApiResponse(req, result);
   }
 
   @Get('resetPasswordRequest')
-  async resetPasswordRequest(@Req() req, @Query('email') email: string): Promise<IResetPasswordResponse | Error | string> {
+  async resetPasswordRequest(@Req() req, @Query('email') email: string): Promise<ApiResponse<{ message: string }>> {
     const { session, sessionID } = req;
 
     if (session && sessionID && session.userId && session.userLoggedIn) {
-      return new ConflictException('Error: Reset Password Operation is Forbidden');
+      throw new ConflictException('Error: Reset Password Operation is Forbidden');
     }
 
     const { userId, resetToken } = await this.authService.resetPasswordRequest(email);
@@ -226,75 +167,31 @@ export class AuthController {
     session.userId = userId;
     session.resetToken = resetToken;
 
-    return 'Reset Password Request Successful';
+    return createApiResponse(req, { message: 'Reset Password Request Successful' });
   }
 
   @Get('getPasswordResetSecurityToken')
-  async getPasswordResetSecurityToken(@Req() req): Promise<ProblemDetails | ApiResponse<any>> {
-    if (req.session.userId && req.session.userLoggedIn) {
-      return {
-        type: '',
-        title: 'Insufficient credentials',
-        status: HttpStatus.BAD_REQUEST,
-        detail: 'Error: Request Params are corrupt or missing.',
-        code: '400',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    const resetSecurityToken = await this.authService.createPasswordResetSecurityToken(req.session.userId);
-
-    if (!resetSecurityToken || resetSecurityToken.length < 1) {
-      return {
-        type: '',
-        title: 'Security Token Not Found',
-        status: HttpStatus.NOT_FOUND,
-        detail: 'Error: Forbidden',
-        code: '404',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    req.session.resetSecurityToken = resetSecurityToken;
-
-    return {
-      success: true,
-      data: { token: resetSecurityToken },
-      requestId: req.headers['x-request-id'],
-      timestamp: new Date().toISOString(),
-      path: req.url as string,
-    };
+  async getPasswordResetSecurityToken(@Req() req): Promise<ApiResponse<any>> {
+    return this.createPasswordResetSecurityTokenResponse(req, req.session.resetToken);
   }
 
   @Post('setNewPassword')
-  async setNewPassword(@Req() req, @Body() setNewPasswordDto: SetNewPasswordDto): Promise<ProblemDetails | ApiResponse<any>> {
+  async setNewPassword(@Req() req, @Body() setNewPasswordDto: SetNewPasswordDto): Promise<ApiResponse<any>> {
     const { session } = req;
 
     const { password, resetToken, securityToken } = setNewPasswordDto;
 
-    const nowDate = new Date().toISOString();
-
     if (password.length < 3) {
-      return {
-        type: '',
-        title: 'Reset Password Failed',
-        status: HttpStatus.NOT_ACCEPTABLE,
-        detail: 'Error: Data is invalid',
-        code: '406',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      throw new NotAcceptableException({
+        error: 'Reset Password Failed',
+        message: 'Password is invalid',
+      });
     }
 
     delete session.userLoggedIn;
 
-    const resetTokenDocument = await this.tokenService.verifyToken(session.resetToken, 'password_reset');
-    const resetSecurityTokenDocument = await this.tokenService.verifyToken(session.resetSecurityToken, 'password_reset_security');
+    const resetTokenDocument = await this.tokenService.verifyToken(resetToken, 'password_reset');
+    const resetSecurityTokenDocument = await this.tokenService.verifyToken(securityToken, 'password_reset_security');
 
     if (!resetTokenDocument) {
       delete session.resetToken;
@@ -304,155 +201,174 @@ export class AuthController {
       delete session.resetSecurityToken;
     }
 
-    if (!resetTokenDocument || !resetSecurityTokenDocument || resetToken !== resetTokenDocument.token || securityToken !== resetSecurityTokenDocument.token) {
-      return {
-        type: '',
-        title: 'Reset Password Failed',
-        status: HttpStatus.FORBIDDEN,
-        detail: 'Error: Forbidden',
-        code: '403',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+    const tokensBelongToSameUser = resetTokenDocument
+      && resetSecurityTokenDocument
+      && resetTokenDocument.userId.toString() === resetSecurityTokenDocument.userId.toString();
+    const tokensMatchSession =
+      session.userId?.toString() === resetTokenDocument?.userId.toString()
+      && session.resetToken === resetToken
+      && session.resetSecurityToken === securityToken;
+    const securityTokenMatchesResetToken =
+      resetSecurityTokenDocument?.metadata?.resetToken === resetToken;
+
+    if (
+      !resetTokenDocument
+      || !resetSecurityTokenDocument
+      || !tokensBelongToSameUser
+      || !tokensMatchSession
+      || !securityTokenMatchesResetToken
+    ) {
+      throw new ForbiddenException({
+        error: 'Reset Password Failed',
+        message: 'Reset token is invalid or expired',
+      });
     }
 
-    const setNewPasswordResult = await this.authService.setNewPassword(session.userId, password);
+    const setNewPasswordResult = await this.authService.setNewPassword(resetTokenDocument.userId.toString(), password);
 
     delete session.userId;
     delete session.resetToken;
     delete session.resetSecurityToken;
 
-    return {
-      success: true,
-      data: {
-        ...setNewPasswordResult,
-      },
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    return createApiResponse(req, setNewPasswordResult);
   }
 
   @Post('validateResetToken')
-  async validateResetToken(@Req() req, @Body() { resetToken }: { resetToken: string }): Promise<ProblemDetails | ApiResponse<any>> {
+  async validateResetToken(@Req() req, @Body() { resetToken }: { resetToken: string }): Promise<ApiResponse<any>> {
     const resetTokenDocument = await this.tokenService.verifyToken(resetToken, 'password_reset');
-
-    const nowDate = new Date().toISOString();
+    const { session } = req;
 
     if (!resetTokenDocument) {
-      return {
-        type: '',
-        title: 'Reset Token is Invalid',
-        status: HttpStatus.BAD_REQUEST,
-        detail: 'Error: Forbidden',
-        code: '400',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      throw new BadRequestException({
+        error: 'Reset Token is Invalid',
+        message: 'Reset token is invalid or expired',
+      });
     }
 
     const { token, used } = resetTokenDocument;
 
-    return {
-      success: !used && resetToken === token,
-      data: { token, used },
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    session.userId = resetTokenDocument.userId.toString();
+    session.resetToken = token;
+    delete session.resetSecurityToken;
+    delete session.userLoggedIn;
+
+    return createApiResponse(req, {
+      token,
+      used,
+      valid: !used && resetToken === token,
+    });
+  }
+
+  @Post('getPasswordResetSecurityToken')
+  async getPasswordResetSecurityTokenPost(
+    @Req() req,
+    @Body() { resetToken }: { resetToken: string },
+  ): Promise<ApiResponse<any>> {
+    return this.createPasswordResetSecurityTokenResponse(req, resetToken);
   }
 
   @Get('getUpdatePasswordSecurityToken')
-  async getUpdatePasswordSecurityToken(@Req() req, @Query('userId') userId: string): Promise<ProblemDetails | ApiResponse<any>> {
+  @UseGuards(AuthGuard)
+  async getUpdatePasswordSecurityToken(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<any>> {
     const { session } = req;
 
-    const nowDate = new Date().toISOString();
-
-    if (!session || !session.userId || !session.userLoggedIn || userId !== session.userId.toString()) {
-      return {
-        type: '',
-        title: 'Get Update Password Token Failed',
-        status: HttpStatus.FORBIDDEN,
-        detail: 'Error: Forbidden',
-        code: '403',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
-    }
-
     await this.tokenModel.deleteMany({
-      userId: session.userId,
+      userId,
       type: 'password_update',
     });
 
     const updateTokenDocument = await this.tokenService.createToken({
-      userId: session.userId,
+      userId,
       type: 'password_update',
       expiresInMinutes: 10,
     });
 
     session.passwordUpdateToken = updateTokenDocument.token;
 
-    return {
-      success: true,
-      data: { token: updateTokenDocument.token },
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    return createApiResponse(req, { token: updateTokenDocument.token });
+  }
+
+  private async createPasswordResetSecurityTokenResponse(req, resetToken: string): Promise<ApiResponse<any>> {
+    const { session } = req;
+
+    if (session.userLoggedIn) {
+      throw new BadRequestException({
+        error: 'Insufficient credentials',
+        message: 'Reset password operation is not available for authenticated sessions',
+      });
+    }
+
+    if (!resetToken) {
+      throw new ForbiddenException({
+        error: 'Reset Token is Invalid',
+        message: 'Reset token is missing',
+      });
+    }
+
+    const resetTokenDocument = await this.tokenService.verifyToken(resetToken, 'password_reset');
+
+    if (!resetTokenDocument || (session.resetToken && session.resetToken !== resetToken)) {
+      throw new ForbiddenException({
+        error: 'Reset Token is Invalid',
+        message: 'Reset token is invalid or expired',
+      });
+    }
+
+    const userId = resetTokenDocument.userId.toString();
+    const resetSecurityToken = await this.authService.createPasswordResetSecurityToken(userId, resetToken);
+
+    if (!resetSecurityToken || resetSecurityToken.length < 1) {
+      throw new NotFoundException({
+        error: 'Security Token Not Found',
+        message: 'Security token could not be created',
+      });
+    }
+
+    session.userId = userId;
+    session.resetToken = resetToken;
+    session.resetSecurityToken = resetSecurityToken;
+
+    return createApiResponse(req, { token: resetSecurityToken });
   }
 
   @Post('updatePassword')
-  async updatePassword(@Req() req, @Body() { userId, securityToken, password, newPassword, confirmPassword }: IUpdatePassword): Promise<ProblemDetails | ApiResponse<any>> {
+  @UseGuards(AuthGuard)
+  async updatePassword(
+    @Req() req,
+    @Body() { securityToken, password, newPassword, confirmPassword }: IUpdatePassword,
+    @CurrentUserId() userId: string,
+  ): Promise<ApiResponse<any>> {
     const { session } = req;
 
     const isPasswordValid = await this.authService.verifyUserPassword(userId, password);
 
     const updateTokenDocument = await this.tokenService.verifyToken(securityToken, 'password_update');
 
-    const nowDate = new Date().toISOString();
+    const tokenBelongsToCurrentUser = updateTokenDocument
+      && updateTokenDocument.userId.toString() === userId
+      && session.passwordUpdateToken === securityToken;
 
-    if (!isPasswordValid || !updateTokenDocument || !session || !session.userId || !session.userLoggedIn || userId !== session.userId.toString()) {
-      return {
-        type: '',
-        title: 'Update Password Failed',
-        status: HttpStatus.FORBIDDEN,
-        detail: 'Error: Forbidden',
-        code: '403',
-        errors: [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+    if (!isPasswordValid || !tokenBelongsToCurrentUser) {
+      throw new ForbiddenException({
+        error: 'Update Password Failed',
+        message: 'Password or security token is invalid',
+      });
     }
 
     const validationResult = this.validationService.validatePassword(newPassword);
 
     if (newPassword !== confirmPassword || !validationResult.success) {
-      return {
-        type: '',
-        title: 'Update Password Failed',
-        status: HttpStatus.NOT_ACCEPTABLE,
-        detail: 'Error: Not Acceptable',
-        code: '406',
+      throw new NotAcceptableException({
+        error: 'Update Password Failed',
+        message: 'New password is invalid',
         errors: validationResult.errors ? validationResult.errors.map((error) => ({ ...error, field: 'password' })) : [],
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-      };
+      });
     }
 
-    const updatePasswordResult = await this.authService.updatePassword(session.userId, newPassword);
+    await this.authService.updatePassword(userId, newPassword);
 
     delete session.passwordUpdateToken;
 
-    return {
-      success: true,
-      data: {},
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-      path: req.url as string,
-    };
+    return createApiResponse(req, {});
   }
 }

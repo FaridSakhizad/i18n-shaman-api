@@ -26,7 +26,6 @@ export interface IResetPasswordResponse {
 }
 
 export interface IUpdatePassword {
-  userId: string;
   securityToken: string;
   password: string;
   newPassword: string;

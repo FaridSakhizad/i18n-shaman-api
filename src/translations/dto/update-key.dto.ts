@@ -1,5 +1,4 @@
 export class UpdateKeyDto {
-  userId: string;
   id: string;
   projectId: string;
   parentId: string;
@@ -10,10 +9,6 @@ export class UpdateKeyDto {
       id: string;
       languageId: string;
       value: string;
-      userId: string;
-      parentId: string;
-      projectId: string;
-      keyId: string;
       pathCache?: string;
     },
   ];

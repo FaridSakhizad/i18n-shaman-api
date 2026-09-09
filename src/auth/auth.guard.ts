@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -7,6 +7,10 @@ export class AuthGuard implements CanActivate {
 
     const { session, sessionID } = request;
 
-    return session && sessionID && session.userId && session.userLoggedIn;
+    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    return true;
   }
 }

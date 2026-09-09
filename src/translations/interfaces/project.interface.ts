@@ -12,6 +12,9 @@ export interface IProject extends Document {
   projectName: string;
   projectId: string;
   userId: string;
+  status?: 'active' | 'deleted';
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
   keys: IKey[];
   values?: any;
   languages: [];
@@ -90,13 +93,11 @@ export interface ISearchParams {
 }
 
 export interface ICreateTag {
-  userId: string;
   projectId: string;
   tagName: string;
 }
 
 export interface IAddTagsToEntities {
-  userId: string;
   projectId: string;
   entityIds: string[];
   tagName: string;
@@ -104,19 +105,16 @@ export interface IAddTagsToEntities {
 }
 
 export interface IAssignTagsToEntities {
-  userId: string;
   projectId: string;
   entityIds: string[];
   tagId: string;
 }
 
 export interface IDeleteTag {
-  userId: string;
   projectId: string;
   tagId: string;
 }
 
 export interface IEditTag extends ITag {
-  userId: string;
   projectId: string;
 }

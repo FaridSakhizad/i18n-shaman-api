@@ -57,6 +57,7 @@ export class SearchService {
 
     const keyMatchesByLabel = await this.keyModel.find({
       label: searchParams,
+      userId,
       projectId,
       type: typesToSearch,
     });
@@ -66,6 +67,8 @@ export class SearchService {
     if (inValues) {
       valueMatchesByValue = await this.keyValueModel.find({
         value: searchParams,
+        userId,
+        projectId,
       });
     }
 
@@ -86,6 +89,7 @@ export class SearchService {
     const allMatchedKeys = await this.keyModel
       .find({
         id: { $in: keysIds },
+        userId,
         projectId,
       })
       .lean();
@@ -105,6 +109,7 @@ export class SearchService {
     const allMatchesParents = await this.keyModel
       .find({
         id: { $in: allParentAndKeyIds },
+        userId,
         projectId,
       })
       .lean();

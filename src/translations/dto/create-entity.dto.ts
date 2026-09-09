@@ -1,5 +1,4 @@
 export class CreateEntityDto {
-  userId: string;
   projectId: string;
   parentId: string;
   id: string;

@@ -9,10 +9,12 @@ import {
   Res,
   UploadedFiles,
   UseInterceptors,
-  UnauthorizedException,
-  HttpStatus, UseGuards,
+  UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { AuthGuard } from '../auth/auth.guard';
+import { CurrentUserId } from '../auth/current-user-id.decorator';
 
 import { Service } from './service';
 import { EExportFormats, IEditTag, ILanguage, IProject } from './interfaces/project.interface';
@@ -25,52 +27,54 @@ import { AddMultipleLanguagesDto } from './dto/add-multiple-languages.dto';
 import { MultipleLanguageVisibilityDto } from './dto/multiple-languages-visibility.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
 import { IKey } from './interfaces/key.interface';
-import { ApiResponse, EStatusCode, IResponse, ProblemDetails } from '../interfaces';
+import { IResponse } from '../interfaces';
 import { GetProjectByIdDto, TSortBy, TSortDirection } from './dto/get-project-by-id.dto';
 import { DeleteProjectEntitiesDto } from './dto/delete-entities.dto';
 import { GetEntitiesChildrenByIdsDto } from './dto/get-entities-children-by-ids.dto';
 import { MoveProjectEntities } from './dto/MoveProjectEntities.dto';
 import { AddTagsToEntityDto, CreateTagDto, DeleteTagDto, EditTagDto } from './dto/tags.dto';
 import { AssignTagToEntitiesDto } from './dto/tags.dto';
+import { createApiResponse } from '../common/http-response';
 
 @Controller()
 export class TransController {
   constructor(private readonly Service: Service) {}
 
   @Post('createProject')
-  createProject(@Body() createProjectDto: CreateProjectDto): Promise<IProject[]> {
-    return this.Service.createProject(createProjectDto);
+  @UseGuards(AuthGuard)
+  async createProject(@Req() req, @Body() createProjectDto: CreateProjectDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.createProject(createProjectDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Post('updateProject')
-  updateProject(@Body() projectData, @Req() req): Promise<IProject | Error> {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async updateProject(@Req() req, @Body() projectData, @CurrentUserId() userId: string) {
+    const result = await this.Service.updateProject(projectData, userId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.updateProject(projectData);
+    return createApiResponse(req, result);
   }
 
   @Delete('deleteProject')
-  deleteProject(@Query('projectId') projectId: string, @Req() req): Promise<IProject[] | Error> {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async deleteProject(@Req() req, @Query('projectId') projectId: string, @CurrentUserId() userId: string) {
+    const result = await this.Service.deleteProject(projectId, userId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.deleteProject(projectId, session.userId);
+    return createApiResponse(req, result);
   }
 
   @Get('getUserProjects')
-  getUserProjects(@Query('userId') userId: string): Promise<IProject[]> {
-    return this.Service.getUserProjects({ userId });
+  @UseGuards(AuthGuard)
+  async getUserProjects(@Req() req, @CurrentUserId() userId: string) {
+    const result = await this.Service.getUserProjects(userId);
+
+    return createApiResponse(req, result);
   }
 
   @Get('getUserProjectById')
-  getUserProjectById(
+  @UseGuards(AuthGuard)
+  async getUserProjectById(
     @Query('projectId') projectId: string,
     @Query('subFolderId') subFolderId: string,
     @Query('page') page: string,
@@ -82,18 +86,12 @@ export class TransController {
     @Query('search') searchQuery: string,
     @Query('search_params') searchParams: string,
     @Req() req,
-  ): Promise<IProject> {
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.getUserProjectById({
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.getUserProjectById({
       projectId,
       page: parseInt(page, 10),
       itemsPerPage: parseInt(itemsPerPage, 10),
-      userId: session.userId.toString(),
       subFolderId,
       sortBy,
       sortDirection,
@@ -101,510 +99,309 @@ export class TransController {
       tags: tags ? tags.split(',') : [],
       searchQuery,
       searchParams: searchQuery && searchParams ? searchParams.split(',') : [],
-    } as GetProjectByIdDto);
+    } as GetProjectByIdDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Get('getKeyData')
-  getKeyData(
-    @Query('projectId') projectId: string,
-    @Query('userId') userId: string,
-    @Query('keyId') keyId: string,
+  @UseGuards(AuthGuard)
+  async getKeyData(
     @Req() req,
+    @Query('projectId') projectId: string,
+    @Query('keyId') keyId: string,
+    @CurrentUserId() userId: string,
   ) {
-    const { session, sessionID } = req;
+    const result = await this.Service.getKeyData(projectId, userId, keyId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.getKeyData(projectId, userId, keyId);
+    return createApiResponse(req, result);
   }
 
   @Get('getEntityContent')
-  getEntityContent(
-    @Query('projectId') projectId: string,
-    @Query('userId') userId: string,
-    @Query('componentId') componentId: string,
+  @UseGuards(AuthGuard)
+  async getEntityContent(
     @Req() req,
+    @Query('projectId') projectId: string,
+    @Query('componentId') componentId: string,
+    @CurrentUserId() userId: string,
   ) {
-    const { session, sessionID } = req;
+    const result = await this.Service.getEntityContent(projectId, userId, componentId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.getEntityContent(projectId, userId, componentId);
+    return createApiResponse(req, result);
   }
 
   @Post('getEntitiesChildrenByIds')
-  getEntitiesChildrenByIds(@Body() getEntitiesChildrenByIdsDto: GetEntitiesChildrenByIdsDto, @Req() req) {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async getEntitiesChildrenByIds(@Req() req, @Body() getEntitiesChildrenByIdsDto: GetEntitiesChildrenByIdsDto, @CurrentUserId() userId: string) {
+    const { projectId, ids } = getEntitiesChildrenByIdsDto;
+    const result = await this.Service.getEntitiesChildrenByIds(projectId, userId, ids);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const { projectId, userId, ids } = getEntitiesChildrenByIdsDto;
-
-    return this.Service.getEntitiesChildrenByIds(projectId, userId, ids);
+    return createApiResponse(req, result);
   }
 
   @Post('createProjectEntity')
-  createProjectEntity(@Body() createKeyEntity: CreateEntityDto, @Req() req) {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async createProjectEntity(@Req() req, @Body() createKeyEntity: CreateEntityDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.createProjectEntity(createKeyEntity, userId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.createProjectEntity({
-      userId: session.userId,
-      ...createKeyEntity,
-    });
+    return createApiResponse(req, result);
   }
 
   @Delete('deleteProjectEntities')
-  deleteProjectEntities(@Body() body: DeleteProjectEntitiesDto, @Req() req) {
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
+  @UseGuards(AuthGuard)
+  async deleteProjectEntities(@Req() req, @Body() body: DeleteProjectEntitiesDto, @CurrentUserId() userId: string) {
     const { projectId, entityIds } = body;
+    const result = await this.Service.deleteProjectEntities(userId, projectId, entityIds);
 
-    return this.Service.deleteProjectEntities(session.userId, projectId, entityIds);
+    return createApiResponse(req, result);
   }
 
   @Post('duplicateEntities')
-  duplicateEntities(@Body() body: DeleteProjectEntitiesDto, @Req() req) {
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
+  @UseGuards(AuthGuard)
+  async duplicateEntities(@Req() req, @Body() body: DeleteProjectEntitiesDto, @CurrentUserId() userId: string) {
     const { projectId, entityIds } = body;
+    const result = await this.Service.duplicateEntities(userId, projectId, entityIds);
 
-    return this.Service.duplicateEntities(session.userId, projectId, entityIds);
+    return createApiResponse(req, result);
   }
 
   @Post('moveEntities')
-  moveEntities(@Body() body: MoveProjectEntities, @Req() req) {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async moveEntities(@Req() req, @Body() body: MoveProjectEntities, @CurrentUserId() userId: string) {
+    const { projectId, entityIds, destinationEntityId } = body;
+    const result = await this.Service.moveEntities(userId, projectId, entityIds, destinationEntityId);
 
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const { userId, projectId, entityIds, destinationEntityId } = body;
-
-    return this.Service.moveEntities(userId, projectId, entityIds, destinationEntityId);
+    return createApiResponse(req, result);
   }
 
   @Post('updateKey')
-  updateKey(@Body() updateKeyDto: UpdateKeyDto) {
-    return this.Service.updateProjectEntity(updateKeyDto);
+  @UseGuards(AuthGuard)
+  async updateKey(@Req() req, @Body() updateKeyDto: UpdateKeyDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.updateProjectEntity(updateKeyDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Post('addLanguage')
-  addLanguage(@Body() addLanguageDto: AddLanguageDto) {
-    return this.Service.addLanguage(addLanguageDto);
+  @UseGuards(AuthGuard)
+  async addLanguage(@Req() req, @Body() addLanguageDto: AddLanguageDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.addLanguage(addLanguageDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Post('updateLanguage')
-  updateLanguage(@Body() updateLanguageDto: UpdateLanguageDto): Promise<IProject | Error> {
-    return this.Service.updateLanguage(updateLanguageDto);
+  @UseGuards(AuthGuard)
+  async updateLanguage(@Req() req, @Body() updateLanguageDto: UpdateLanguageDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.updateLanguage(updateLanguageDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Post('addMultipleLanguages')
-  addMultipleProjectLanguages(@Body() addMultipleLanguagesDto: AddMultipleLanguagesDto): Promise<IProject | Error> {
-    return this.Service.addMultipleProjectLanguages(addMultipleLanguagesDto);
+  @UseGuards(AuthGuard)
+  async addMultipleProjectLanguages(@Req() req, @Body() addMultipleLanguagesDto: AddMultipleLanguagesDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.addMultipleProjectLanguages(addMultipleLanguagesDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Post('createTag')
+  @UseGuards(AuthGuard)
   async createTag(
     @Req() req,
     @Body() createTagDto: CreateTagDto,
+    @CurrentUserId() userId: string,
   ) {
-    const nowDate = new Date().toISOString();
+    const result = await this.Service.createTag(createTagDto, userId);
 
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const result = await this.Service.createTag({
-      ...createTagDto,
-      userId: session.userId,
-    });
-
-    if (result) {
-      return {
-        success: true,
-        data: {
-          ...result.metaData,
-        },
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-        path: req.url as string,
-      };
-    }
-
-    return {
-      type: '',
-      title: 'Get Update Password Token Failed',
-      status: HttpStatus.OK,
-      detail: 'Error: Forbidden',
-      code: '403',
-      errors: [],
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-    } as ProblemDetails;
+    return createApiResponse(req, result);
   }
 
   @Post('addTagsToEntities')
+  @UseGuards(AuthGuard)
   async addTagsToEntities(
     @Req() req,
     @Body() addTagsToEntityDto: AddTagsToEntityDto,
-  ): Promise<ProblemDetails | ApiResponse<any>> {
-    const nowDate = new Date().toISOString();
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.addTagsToEntities(addTagsToEntityDto, userId);
 
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const result = await this.Service.addTagsToEntities({
-      ...addTagsToEntityDto,
-      userId: session.userId,
-    });
-
-    if (result) {
-      return {
-        success: true,
-        data: {
-          ...result.metaData,
-        },
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-        path: req.url as string,
-      };
-    }
-
-    return {
-      type: '',
-      title: 'Get Update Password Token Failed',
-      status: HttpStatus.OK,
-      detail: 'Error: Forbidden',
-      code: '403',
-      errors: [],
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-    } as ProblemDetails;
+    return createApiResponse(req, result);
   }
 
   @Post('assignTagToEntities')
+  @UseGuards(AuthGuard)
   async assignTagToEntities(
     @Req() req,
     @Body() assignTagToEntitiesDto: AssignTagToEntitiesDto,
-  ): Promise<ProblemDetails | ApiResponse<any>> {
-    const nowDate = new Date().toISOString();
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.assignTagToEntities(assignTagToEntitiesDto, userId);
 
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const result = await this.Service.assignTagToEntities({
-      ...assignTagToEntitiesDto,
-      userId: session.userId,
-    });
-
-    if (result) {
-      return {
-        success: true,
-        data: {
-          ...result.metaData,
-        },
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-        path: req.url as string,
-      };
-    }
-
-    return {
-      type: '',
-      title: 'Get Update Password Token Failed',
-      status: HttpStatus.OK,
-      detail: 'Error: Forbidden',
-      code: '403',
-      errors: [],
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-    } as ProblemDetails;
+    return createApiResponse(req, result);
   }
 
   @Post('updateTag')
+  @UseGuards(AuthGuard)
   async updateTag(
     @Req() req,
     @Body() editTagDto: EditTagDto,
-  ): Promise<ProblemDetails | ApiResponse<any>> {
-    const nowDate = new Date().toISOString();
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.updateTag(editTagDto as IEditTag, userId);
 
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const result = await this.Service.updateTag({
-      ...editTagDto as IEditTag,
-      userId: session.userId,
-    });
-
-    if (result) {
-      return {
-        success: true,
-        data: {
-          ...result.metaData,
-        },
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-        path: req.url as string,
-      };
-    }
-
-    return {
-      type: '',
-      title: 'Edit Tag Failed',
-      status: HttpStatus.OK,
-      detail: 'Error: Forbidden',
-      code: '403',
-      errors: [],
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-    } as ProblemDetails;
+    return createApiResponse(req, result);
   }
 
   @Post('deleteTag')
+  @UseGuards(AuthGuard)
   async deleteTag(
     @Req() req,
     @Body() deleteTagDto: DeleteTagDto,
-  ): Promise<ProblemDetails | ApiResponse<any>> {
-    const nowDate = new Date().toISOString();
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.deleteTag(deleteTagDto, userId);
 
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const result = await this.Service.deleteTag({
-      ...deleteTagDto,
-      userId: session.userId,
-    });
-
-    if (result) {
-      return {
-        success: true,
-        data: {
-          ...result.metaData,
-        },
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-        path: req.url as string,
-      };
-    }
-
-    return {
-      type: '',
-      title: 'Delete Tag Failed',
-      status: HttpStatus.OK,
-      detail: 'Error: Forbidden',
-      code: '403',
-      errors: [],
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-    } as ProblemDetails;
+    return createApiResponse(req, result);
   }
 
   @Post('detachTagFromEntities')
+  @UseGuards(AuthGuard)
   async detachTagFromEntities(
     @Req() req,
     @Body() assignTagToEntitiesDto: AssignTagToEntitiesDto,
-  ): Promise<ProblemDetails | ApiResponse<any>> {
-    const nowDate = new Date().toISOString();
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.detachTagFromEntities(assignTagToEntitiesDto, userId);
 
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    const result = await this.Service.detachTagFromEntities({
-      ...assignTagToEntitiesDto,
-      userId: session.userId,
-    });
-
-    if (result) {
-      return {
-        success: true,
-        data: {
-          ...result.metaData,
-        },
-        requestId: req.headers['x-request-id'],
-        timestamp: nowDate,
-        path: req.url as string,
-      };
-    }
-
-    return {
-      type: '',
-      title: 'Get Update Password Token Failed',
-      status: HttpStatus.OK,
-      detail: 'Error: Forbidden',
-      code: '403',
-      errors: [],
-      requestId: req.headers['x-request-id'],
-      timestamp: nowDate,
-    } as ProblemDetails;
+    return createApiResponse(req, result);
   }
 
   @Delete('deleteLanguage')
-  deleteProjectLanguage(
+  @UseGuards(AuthGuard)
+  async deleteProjectLanguage(
+    @Req() req,
     @Query('languageId') languageId: string,
     @Query('projectId') projectId: string,
-    @Req() req,
-  ): Promise<IProject | Error> {
-    const { session, sessionID } = req;
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.deleteProjectLanguage(projectId, languageId, userId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.deleteProjectLanguage(projectId, languageId);
+    return createApiResponse(req, result);
   }
 
   @Post('setLanguageVisibility')
-  setLanguageVisibility(@Body() languageVisibilityDto: LanguageVisibilityDto): Promise<IProject> {
-    return this.Service.setLanguageVisibility(languageVisibilityDto);
+  @UseGuards(AuthGuard)
+  async setLanguageVisibility(@Req() req, @Body() languageVisibilityDto: LanguageVisibilityDto, @CurrentUserId() userId: string) {
+    const result = await this.Service.setLanguageVisibility(languageVisibilityDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Post('setMultipleLanguagesVisibility')
-  setMultipleLanguagesVisibility(
+  @UseGuards(AuthGuard)
+  async setMultipleLanguagesVisibility(
+    @Req() req,
     @Body() multipleLanguageVisibilityDto: MultipleLanguageVisibilityDto,
-  ): Promise<IProject> {
-    return this.Service.setMultipleLanguagesVisibility(multipleLanguageVisibilityDto);
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.setMultipleLanguagesVisibility(multipleLanguageVisibilityDto, userId);
+
+    return createApiResponse(req, result);
   }
 
   @Get('exportProject')
+  @UseGuards(AuthGuard)
   async exportProject(
     @Query('projectId') projectId: string,
     @Query('format') format: EExportFormats,
     @Query('format_settings') formatSettings: any = {},
-    @Req() req,
+    @CurrentUserId() userId: string,
     @Res() res: Response,
   ): Promise<IResponse> {
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
     if (format === EExportFormats.json) {
-      return await this.Service.exportProjectToJson(projectId, formatSettings, session.userId, res);
+      return await this.Service.exportProjectToJson(projectId, formatSettings, userId, res);
     }
 
     if (format === EExportFormats.androidXml) {
-      return await this.Service.exportProjectToAndroidXml(projectId, formatSettings, session.userId, res);
+      return await this.Service.exportProjectToAndroidXml(projectId, formatSettings, userId, res);
     }
 
     if (format === EExportFormats.appleStrings) {
-      return await this.Service.exportProjectToAppleStrings(projectId, formatSettings, session.userId, res);
+      return await this.Service.exportProjectToAppleStrings(projectId, formatSettings, userId, res);
     }
 
-    return {
-      statusCode: EStatusCode.Not_Found,
+    throw new BadRequestException({
+      error: 'Export Failed',
       message: 'Format is not supported',
-    };
+    });
   }
 
   @Post('importJsonDataToProject')
+  @UseGuards(AuthGuard)
   @UseInterceptors(FilesInterceptor('files', 10))
   async importJsonDataToProject(
+    @Req() req,
     @Body('projectId') projectId: string,
     @Body('metaData') metaData: string,
-    @Req() req,
+    @CurrentUserId() userId: string,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    const { session, sessionID } = req;
+    const result = await this.Service.importDataToProject({ projectId, files, metaData }, userId);
 
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return await this.Service.importDataToProject({ projectId, userId: session.userId, files, metaData });
+    return createApiResponse(req, result);
   }
 
   @Post('importComponentsDataToProject')
+  @UseGuards(AuthGuard)
   @UseInterceptors(FilesInterceptor('files', 10))
   async importComponentsDataToProject(
+    @Req() req,
     @Body('projectId') projectId: string,
     @Body('metaData') metaData: string[] | string,
-    @Req() req,
+    @CurrentUserId() userId: string,
     @UploadedFiles() files: Express.Multer.File[] & { code: string },
   ) {
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
     const metaDataParsed =
       typeof metaData === 'string'
         ? [JSON.parse(metaData as string)]
         : metaData.map((dataItem) => JSON.parse(dataItem));
 
-    return await this.Service.importComponentsDataToProject({
+    const result = await this.Service.importComponentsDataToProject({
       projectId,
-      userId: session.userId,
       files,
       metaData: metaDataParsed,
-    });
+    }, userId);
+
+    return createApiResponse(req, result.metaData);
   }
 
   @Post('addMultipleRawLanguages')
-  async addMultipleRawLanguages(@Body() data: any[], @Req() req) {
-    const { session, sessionID } = req;
+  @UseGuards(AuthGuard)
+  async addMultipleRawLanguages(@Req() req, @Body() data: any[]) {
+    const result = await this.Service.addMultipleRawLanguages(data);
 
-    if (!session || !sessionID || !session.userId || !session.userLoggedIn) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.addMultipleRawLanguages(data);
+    return createApiResponse(req, result);
   }
 
   @Get('getAppLanguagesData')
-  async getAppLanguagesData(): Promise<ILanguage[]> {
-    return this.Service.getAppLanguagesData();
+  async getAppLanguagesData(@Req() req) {
+    const result = await this.Service.getAppLanguagesData();
+
+    return createApiResponse(req, result);
   }
 
   @Get('getMultipleEntitiesDataByParentId')
+  @UseGuards(AuthGuard)
   async getMultipleEntitiesDataByParentId(
+    @Req() req,
     @Query('projectId') projectId: string,
     @Query('parentId') parentId: string,
-    @Req() req,
-  ): Promise<IKey[]> {
-    const { session, sessionID } = req;
+    @CurrentUserId() userId: string,
+  ) {
+    const result = await this.Service.getMultipleEntitiesDataByParentId(projectId, parentId, userId);
 
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.Service.getMultipleEntitiesDataByParentId(projectId, parentId);
+    return createApiResponse(req, result);
   }
 }

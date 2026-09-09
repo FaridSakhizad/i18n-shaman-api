@@ -50,56 +50,71 @@ export class Service {
     private readonly keyHelperService: KeyHelperService,
   ) {}
 
-  async getUserProjects(params): Promise<IProject[]> {
-    return this.projectModel.find(params).exec();
+  private getActiveProjectFilter(userId: string, projectId?: string) {
+    return {
+      userId,
+      deletedAt: null,
+      ...(projectId ? { projectId } : {}),
+    };
   }
 
-  async createProject(createProjectDto: CreateProjectDto): Promise<IProject[]> {
-    const createdProject = new this.projectModel(createProjectDto);
+  async getUserProjects(userId: string): Promise<IProject[]> {
+    return this.projectModel.find(this.getActiveProjectFilter(userId)).exec();
+  }
+
+  async createProject(createProjectDto: CreateProjectDto, userId: string): Promise<IProject[]> {
+    const createdProject = new this.projectModel({
+      ...createProjectDto,
+      userId,
+    });
 
     await createdProject.save();
 
-    const userProjects = await this.projectModel.find({
-      userId: createProjectDto.userId,
-    });
+    const userProjects = await this.projectModel.find(this.getActiveProjectFilter(userId));
 
     return userProjects;
   }
 
-  async updateProject(data): Promise<IProject> {
-    const { projectId, ...dataPatch } = data;
+  async updateProject(data, userId: string): Promise<IProject> {
+    const { projectId, userId: _ignoredUserId, ...dataPatch } = data;
 
     await this.projectModel.updateOne(
       {
-        projectId,
+        ...this.getActiveProjectFilter(userId, projectId),
       },
       dataPatch,
     );
 
-    return this.projectModel.findOne({ projectId });
+    return this.projectModel.findOne(this.getActiveProjectFilter(userId, projectId));
   }
 
   async deleteProject(projectId, userId): Promise<IProject[]> {
-    await this.projectModel.deleteOne({
-      projectId,
-      userId,
-    });
+    const deleteResult = await this.projectModel.findOneAndUpdate(
+      this.getActiveProjectFilter(userId, projectId),
+      {
+        $set: {
+          status: 'deleted',
+          deletedAt: new Date(),
+          deletedBy: userId,
+        },
+      },
+      { new: true },
+    );
 
-    const userProjects = await this.projectModel.find({
-      userId,
-    });
+    if (!deleteResult) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const userProjects = await this.projectModel.find(this.getActiveProjectFilter(userId));
 
     return userProjects;
   }
 
-  async createTag(data: ICreateTag): Promise<IResponse> {
-    const { projectId, tagName, userId } = data;
+  async createTag(data: ICreateTag, userId: string) {
+    const { projectId, tagName } = data;
 
     const project = await this.projectModel
-      .findOne({
-        projectId,
-        userId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
 
     if (!project) {
@@ -121,21 +136,15 @@ export class Service {
     await project.save();
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        tags: project.tags,
-      },
+      tags: project.tags,
     };
   }
 
-  async addTagsToEntities(data: IAddTagsToEntities): Promise<IResponse> {
-    const { projectId, entityIds, tagName, userId, color } = data;
+  async addTagsToEntities(data: IAddTagsToEntities, userId: string) {
+    const { projectId, entityIds, tagName, color } = data;
 
     const project = await this.projectModel
-      .findOne({
-        projectId,
-        userId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
 
     if (!project) {
@@ -147,10 +156,11 @@ export class Service {
     const tagExists = (tags && tags.length) ? tags.find((tag: ITag) => tag.name === tagName) : null;
 
     const newTagId = Math.random().toString(16).substring(2);
+    const tagId = tagExists ? tagExists.id : newTagId;
 
     if (!tagExists) {
       const newTag: ITag = {
-        id: newTagId,
+        id: tagId,
         name: tagName,
         color,
       };
@@ -170,28 +180,36 @@ export class Service {
       id: entityIds,
     });
 
-    entities.forEach((entity) => {
+    await Promise.all(entities.map((entity) => {
       if (!entity.tags) {
         entity.tags = [];
       }
 
-      entity.tags.push({
-        id: newTagId,
-      });
+      if (entity.tags.every((tag) => tag.id !== tagId)) {
+        entity.tags.push({
+          id: tagId,
+        });
+      }
 
-      entity.save();
-    });
+      return entity.save();
+    }));
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        tags: project.tags,
-      },
+      tags: project.tags,
     };
   }
 
-  async assignTagToEntities(data: IAssignTagsToEntities): Promise<IResponse> {
-    const { projectId, entityIds, tagId, userId } = data;
+  async assignTagToEntities(data: IAssignTagsToEntities, userId: string) {
+    const { projectId, entityIds, tagId } = data;
+
+    const project = await this.projectModel.findOne({
+      ...this.getActiveProjectFilter(userId, projectId),
+      'tags.id': tagId,
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project or Tag not found');
+    }
 
     const entities = await this.keyModel.find({
       userId,
@@ -201,7 +219,7 @@ export class Service {
 
     const filteredEntities = entities.filter(({ tags }) => !tags || tags.every((tag) => tag.id !== tagId));
 
-    filteredEntities.forEach((entity) => {
+    await Promise.all(filteredEntities.map((entity) => {
       if (!entity.tags) {
         entity.tags = [];
       }
@@ -210,24 +228,29 @@ export class Service {
         id: tagId,
       });
 
-      entity.save();
-    });
+      return entity.save();
+    }));
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        entities: filteredEntities
-      },
+      entities: filteredEntities,
     };
   }
 
-  async detachTagFromEntities(data: IAssignTagsToEntities): Promise<IResponse> {
+  async detachTagFromEntities(data: IAssignTagsToEntities, userId: string) {
     const {
       projectId,
       entityIds,
       tagId,
-      userId
     } = data;
+
+    const project = await this.projectModel.findOne({
+      ...this.getActiveProjectFilter(userId, projectId),
+      'tags.id': tagId,
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project or Tag not found');
+    }
 
     const entities = await this.keyModel.find({
       userId,
@@ -235,32 +258,25 @@ export class Service {
       id: entityIds,
     });
 
-    entities.forEach((entity) => {
+    await Promise.all(entities.map((entity) => {
       entity.tags = entity.tags.filter((tag) => tag.id !== tagId);
 
-      entity.save();
-    });
+      return entity.save();
+    }));
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        entities,
-      },
+      entities,
     };
   }
 
-  async deleteTag(data: IDeleteTag): Promise<IResponse> {
+  async deleteTag(data: IDeleteTag, userId: string) {
     const {
       projectId,
       tagId,
-      userId
     } = data;
 
     const project = await this.projectModel
-      .findOne({
-        projectId,
-        userId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
 
     if (!project) {
@@ -277,24 +293,20 @@ export class Service {
       'tags.id': tagId,
     });
 
-    entities.forEach((entity: IKey) => {
+    await Promise.all(entities.map((entity: IKey) => {
       entity.tags = entity.tags.filter((tag) => tag.id !== tagId);
 
-      entity.save();
-    });
+      return entity.save();
+    }));
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        tags: project.tags,
-      },
+      tags: project.tags,
     };
   }
 
-  async updateTag(data: IEditTag): Promise<IResponse> {
+  async updateTag(data: IEditTag, userId: string) {
     const {
       projectId,
-      userId,
       id,
       name,
       color,
@@ -302,8 +314,7 @@ export class Service {
     } = data;
 
     const project = await this.projectModel.findOne({
-      projectId,
-      userId,
+      ...this.getActiveProjectFilter(userId, projectId),
       'tags.id': id,
     });
 
@@ -320,22 +331,26 @@ export class Service {
     await project.save();
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        ok: 'ok',
-      },
+      ok: 'ok',
     };
   }
 
-  async createProjectEntity(createEntityDto: CreateEntityDto) {
-    const { id, userId, projectId } = createEntityDto;
+  async createProjectEntity(createEntityDto: CreateEntityDto, userId: string) {
+    const { id, projectId } = createEntityDto;
 
     const createdAt = +new Date();
 
     const { values, ...keyData } = createEntityDto;
 
+    const project = await this.projectModel.findOne(this.getActiveProjectFilter(userId, projectId));
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
     const createdKey = new this.keyModel({
       ...keyData,
+      userId,
       updatedAt: createdAt,
       createdAt,
     });
@@ -344,11 +359,11 @@ export class Service {
 
     const keyValuesData = values.map((value) => ({
       id: Math.random().toString(16).substring(2),
+      ...value,
       userId,
       projectId,
       keyId: id,
       pathCache: `${keyCreateResult.pathCache}/${keyCreateResult.id}`,
-      ...value,
     }));
 
     const valuesInsertResult = await this.keyValueModel.insertMany(keyValuesData);
@@ -371,14 +386,20 @@ export class Service {
     }
 
     const childrenEntitiesDeleteResult = await this.keyModel.deleteMany({
+      userId,
+      projectId,
       $or: entityIds.map((id) => ({ pathCache: { $regex: id, $options: 'i' } })),
     });
 
     const childrenValues = await this.keyValueModel.find({
+      userId,
+      projectId,
       $or: entityIds.map((id) => ({ pathCache: { $regex: id, $options: 'i' } })),
     });
 
     const childrenValuesDeleteResult = await this.keyValueModel.deleteMany({
+      userId,
+      projectId,
       $or: entityIds.map((id) => ({ pathCache: { $regex: id, $options: 'i' } })),
     });
 
@@ -452,6 +473,8 @@ export class Service {
 
     const rootEntitiesValues = await this.keyValueModel
       .find({
+        userId,
+        projectId,
         keyId: entityIds,
       })
       .lean();
@@ -581,6 +604,14 @@ export class Service {
 
     const docIsMovingToRoot = projectId === destinationEntityId;
 
+    if (!docIsMovingToRoot && !destinationDocument) {
+      throw new NotFoundException('Destination entity not found');
+    }
+
+    if (!rootEntities || rootEntities.length < 1) {
+      throw new NotFoundException('Entity not found');
+    }
+
     const rootEntitiesOps = rootEntities.map((document) => {
       return {
         updateOne: {
@@ -629,7 +660,13 @@ export class Service {
 
     /* MOVING CHILDREN */
     const childEntities = await this.keyModel.aggregate([
-      { $match: { pathCache: { $regex: entityIds.join('|') } } },
+      {
+        $match: {
+          userId,
+          projectId,
+          pathCache: { $regex: entityIds.join('|') },
+        },
+      },
       {
         $addFields: {
           _match: {
@@ -680,7 +717,13 @@ export class Service {
     await this.keyModel.bulkWrite(childEntitiesOps, { ordered: false });
 
     const childEntitiesValues = await this.keyValueModel.aggregate([
-      { $match: { pathCache: { $regex: entityIds.join('|') } } },
+      {
+        $match: {
+          userId,
+          projectId,
+          pathCache: { $regex: entityIds.join('|') },
+        },
+      },
       {
         $addFields: {
           _match: {
@@ -791,14 +834,16 @@ export class Service {
     return aggregatedValues;
   }
 
-  async updateProjectEntity(updateKeyDto: UpdateKeyDto) {
-    const { id, label, description, values, userId, projectId, parentId } = updateKeyDto;
+  async updateProjectEntity(updateKeyDto: UpdateKeyDto, userId: string) {
+    const { id, label, description, values, projectId, parentId } = updateKeyDto;
 
     const updatedAt = +new Date();
 
     const result = await this.keyModel.updateOne(
       {
         id,
+        projectId,
+        userId,
       },
       {
         label,
@@ -807,16 +852,23 @@ export class Service {
       },
     );
 
-    let key = await this.keyModel.findOne({ id });
+    let key = await this.keyModel.findOne({ id, projectId, userId });
+
+    if (!key) {
+      throw new NotFoundException('Entity not found');
+    }
 
     key = key.toObject();
 
     const bulkOps = values.map((item) => {
+      const valuePatch = {
+        ...item,
+        userId,
+        projectId,
+        keyId: id,
+        parentId,
+      };
       const $setOnInsert = {};
-
-      if (!item.userId) {
-        $setOnInsert['userId'] = userId;
-      }
 
       if (!item.id) {
         $setOnInsert['id'] = Math.random().toString(16).substring(2);
@@ -828,9 +880,14 @@ export class Service {
 
       return {
         updateOne: {
-          filter: { id: item.id },
+          filter: {
+            id: item.id,
+            userId,
+            projectId,
+            keyId: id,
+          },
           update: {
-            $set: item,
+            $set: valuePatch,
             $setOnInsert,
           },
           upsert: true,
@@ -848,12 +905,11 @@ export class Service {
     };
   }
 
-  async getUserProjectById(params: GetProjectByIdDto): Promise<IProject> {
+  async getUserProjectById(params: GetProjectByIdDto, userId: string): Promise<IProject> {
     const {
       projectId,
       page,
       itemsPerPage,
-      userId,
       subFolderId,
       sortBy,
       sortDirection = 'asc',
@@ -864,10 +920,7 @@ export class Service {
     } = params;
 
     const project = await this.projectModel
-      .findOne({
-        projectId,
-        userId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
 
     if (!project) {
@@ -971,8 +1024,20 @@ export class Service {
         {
           $lookup: {
             from: 'keyvalues',
-            localField: 'id',
-            foreignField: 'keyId',
+            let: { keyId: '$id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$keyId', '$$keyId'] },
+                      { $eq: ['$userId', userId] },
+                      { $eq: ['$projectId', projectId] },
+                    ],
+                  },
+                },
+              },
+            ],
             as: 'values',
           },
         },
@@ -1020,8 +1085,20 @@ export class Service {
         {
           $lookup: {
             from: 'keyvalues',
-            localField: 'id',
-            foreignField: 'keyId',
+            let: { keyId: '$id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$keyId', '$$keyId'] },
+                      { $eq: ['$userId', userId] },
+                      { $eq: ['$projectId', projectId] },
+                    ],
+                  },
+                },
+              },
+            ],
             as: 'values',
           },
         },
@@ -1070,8 +1147,20 @@ export class Service {
         {
           $lookup: {
             from: 'keyvalues',
-            localField: 'id',
-            foreignField: 'keyId',
+            let: { keyId: '$id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$keyId', '$$keyId'] },
+                      { $eq: ['$userId', userId] },
+                      { $eq: ['$projectId', projectId] },
+                    ],
+                  },
+                },
+              },
+            ],
             as: 'values',
           },
         },
@@ -1162,10 +1251,28 @@ export class Service {
 
     const searchResult = await this.keyModel.aggregate([
       {
+        $match: {
+          userId,
+          projectId,
+        },
+      },
+      {
         $lookup: {
           from: 'keyvalues',
-          localField: 'id',
-          foreignField: 'keyId',
+          let: { keyId: '$id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$keyId', '$$keyId'] },
+                    { $eq: ['$userId', userId] },
+                    { $eq: ['$projectId', projectId] },
+                  ],
+                },
+              },
+            },
+          ],
           as: 'values',
         },
       },
@@ -1250,11 +1357,11 @@ export class Service {
     return keys;
   }
 
-  async addLanguage(addLanguageDto: AddLanguageDto) {
+  async addLanguage(addLanguageDto: AddLanguageDto, userId: string) {
     const { projectId, id, label, baseLanguage, code } = addLanguageDto;
 
     const result = await this.projectModel.updateOne(
-      { projectId },
+      this.getActiveProjectFilter(userId, projectId),
       {
         $addToSet: {
           languages: {
@@ -1271,11 +1378,11 @@ export class Service {
     return result;
   }
 
-  async updateLanguage(updateLanguageDto: UpdateLanguageDto): Promise<IProject | Error> {
+  async updateLanguage(updateLanguageDto: UpdateLanguageDto, userId: string): Promise<IProject | Error> {
     const { projectId, ...language } = updateLanguageDto;
 
     const result = await this.projectModel.findOneAndUpdate(
-      { projectId, 'languages.id': language.id },
+      { ...this.getActiveProjectFilter(userId, projectId), 'languages.id': language.id },
       { $set: { 'languages.$': language } },
       { new: true },
     );
@@ -1287,11 +1394,11 @@ export class Service {
     return result;
   }
 
-  async addMultipleProjectLanguages(addMultipleLanguagesDto: AddMultipleLanguagesDto): Promise<IProject | Error> {
+  async addMultipleProjectLanguages(addMultipleLanguagesDto: AddMultipleLanguagesDto, userId: string): Promise<IProject | Error> {
     const { projectId, languages } = addMultipleLanguagesDto;
 
     const result = await this.projectModel
-      .findOneAndUpdate({ projectId }, { $push: { languages: { $each: languages } } }, { new: true })
+      .findOneAndUpdate(this.getActiveProjectFilter(userId, projectId), { $push: { languages: { $each: languages } } }, { new: true })
       .exec();
 
     if (!result) {
@@ -1301,9 +1408,9 @@ export class Service {
     return result;
   }
 
-  async deleteProjectLanguage(projectId: string, languageId: string): Promise<IProject | Error> {
+  async deleteProjectLanguage(projectId: string, languageId: string, userId: string): Promise<IProject | Error> {
     const result = await this.projectModel
-      .findOneAndUpdate({ projectId }, { $pull: { languages: { id: languageId } } }, { new: true })
+      .findOneAndUpdate(this.getActiveProjectFilter(userId, projectId), { $pull: { languages: { id: languageId } } }, { new: true })
       .exec();
 
     if (!result) {
@@ -1313,9 +1420,9 @@ export class Service {
     return result;
   }
 
-  async setLanguageVisibility({ projectId, languageId, visible }: LanguageVisibilityDto): Promise<IProject> {
+  async setLanguageVisibility({ projectId, languageId, visible }: LanguageVisibilityDto, userId: string): Promise<IProject> {
     const result = await this.projectModel.findOneAndUpdate(
-      { projectId, 'languages.id': languageId },
+      { ...this.getActiveProjectFilter(userId, projectId), 'languages.id': languageId },
       { $set: { 'languages.$.visible': visible } },
       { new: true },
     );
@@ -1323,11 +1430,11 @@ export class Service {
     return result;
   }
 
-  async setMultipleLanguagesVisibility({ projectId, data }: MultipleLanguageVisibilityDto): Promise<IProject> {
+  async setMultipleLanguagesVisibility({ projectId, data }: MultipleLanguageVisibilityDto, userId: string): Promise<IProject> {
     const bulkOps = data.map(({ languageId, visible }) => {
       return {
         updateOne: {
-          filter: { projectId, 'languages.id': languageId },
+          filter: { ...this.getActiveProjectFilter(userId, projectId), 'languages.id': languageId },
           update: { $set: { 'languages.$.visible': visible } },
         },
       };
@@ -1335,7 +1442,7 @@ export class Service {
 
     await this.projectModel.bulkWrite(bulkOps);
 
-    return await this.projectModel.findOne({ projectId });
+    return await this.projectModel.findOne(this.getActiveProjectFilter(userId, projectId));
   }
 
   getShallowFileKeyValueStructure(keys, aggregatedValues, languagesMap) {
@@ -1421,8 +1528,8 @@ export class Service {
     return result;
   }
 
-  async getMultipleEntitiesDataByParentId(projectId: string, parentId: string): Promise<IKey[]> {
-    const result = await this.keyModel.find({ projectId, parentId });
+  async getMultipleEntitiesDataByParentId(projectId: string, parentId: string, userId: string): Promise<IKey[]> {
+    const result = await this.keyModel.find({ projectId, parentId, userId });
 
     return result;
   }
@@ -1463,11 +1570,12 @@ export class Service {
 
   async exportProjectToJson(projectId: string, format_settings: any, userId: string, res): Promise<any> {
     const project = await this.projectModel
-      .findOne({
-        userId,
-        projectId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
 
     const structuredData = await this.getStructuredObjectFromProject(userId, project);
 
@@ -1575,11 +1683,12 @@ export class Service {
     };
 
     const project = await this.projectModel
-      .findOne({
-        userId,
-        projectId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
 
     const linearData = await this.getXmlReadyLinearDataFromProject(userId.toString(), project);
 
@@ -1637,11 +1746,12 @@ export class Service {
     };
 
     const project = await this.projectModel
-      .findOne({
-        userId,
-        projectId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
 
     const structuredData = await this.getStringsReadyArrayFromProject(userId, project);
 
@@ -1721,8 +1831,8 @@ export class Service {
     return results;
   }
 
-  async importDataToProject(data: any) {
-    const { projectId, userId, files, metaData } = data;
+  async importDataToProject(data: any, userId: string) {
+    const { projectId, files, metaData } = data;
 
     const filesMetaData = JSON.parse(metaData);
 
@@ -1821,11 +1931,12 @@ export class Service {
     });
 
     const project = await this.projectModel
-      .findOne({
-        userId,
-        projectId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
 
     const { languages: projectLanguages } = project;
 
@@ -1855,7 +1966,7 @@ export class Service {
       addProjectLanguagesResult = await this.addMultipleProjectLanguages({
         projectId,
         languages: languagesToAdd,
-      });
+      }, userId);
     }
 
     const createDocumentsResult = await this.keyModel.insertMany(arrayOfDocumentsToCreate);
@@ -1869,15 +1980,16 @@ export class Service {
     };
   }
 
-  async importComponentsDataToProject(data: any): Promise<IResponse> {
-    const { projectId, userId, files, metaData } = data;
+  async importComponentsDataToProject(data: any, userId: string): Promise<IResponse> {
+    const { projectId, files, metaData } = data;
 
     const project = await this.projectModel
-      .findOne({
-        userId,
-        projectId,
-      })
+      .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
 
     const { languages: projectLanguages } = project;
 
@@ -2004,7 +2116,7 @@ export class Service {
           code,
           visible: true,
         })),
-      });
+      }, userId);
     }
 
     const createDocumentsResult = await this.keyModel.insertMany(arrayOfDocumentsToCreate);

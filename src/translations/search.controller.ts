@@ -1,12 +1,17 @@
-import { Controller, Get, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '../auth/auth.guard';
+import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { SearchService } from './search.service';
+import { createApiResponse } from '../common/http-response';
 
 @Controller()
 export class SearchController {
   constructor(private readonly SearchService: SearchService) {}
 
   @Get('search')
-  getUserProjects(
+  @UseGuards(AuthGuard)
+  async getUserProjects(
+    @Req() req,
     @Query('projectId') projectId: string,
     @Query('query') searchQuery: string,
     @Query('case_sensitive') caseSensitive: string,
@@ -15,16 +20,10 @@ export class SearchController {
     @Query('in_values') inValues: string,
     @Query('in_folders') inFolders: string,
     @Query('in_components') inComponents: string,
-    @Req() req,
+    @CurrentUserId() userId: string,
   ) {
-    const { session, sessionID } = req;
-
-    if (!session || !sessionID || !session.userId) {
-      throw new UnauthorizedException('Error: Denied');
-    }
-
-    return this.SearchService.performSearch({
-      userId: session.userId,
+    const result = await this.SearchService.performSearch({
+      userId,
       projectId,
       searchQuery,
       caseSensitive: caseSensitive === 'true',
@@ -34,5 +33,7 @@ export class SearchController {
       inFolders: inFolders !== 'false',
       inComponents: inComponents !== 'false',
     });
+
+    return createApiResponse(req, result);
   }
 }

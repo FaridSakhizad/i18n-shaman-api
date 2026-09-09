@@ -293,8 +293,6 @@ export class KeyHelperService {
 
       const labelArray = [];
 
-      console.log('2 1');
-
       pathCacheArray.forEach((pathCacheItem) => {
         if (!keysDataMap.has(pathCacheItem)) {
           return;
@@ -308,8 +306,6 @@ export class KeyHelperService {
 
         labelArray.push(label);
       });
-
-      console.log('2 2');
 
       labelArray.push(label);
 
@@ -347,10 +343,6 @@ export class KeyHelperService {
         });
       }
     });
-
-    console.log(' ');
-    console.log('3');
-    console.log(' ');
 
     return result;
   }

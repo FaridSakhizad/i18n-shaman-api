@@ -5,7 +5,6 @@ export class GetProjectByIdDto {
   projectId: string;
   page?: number;
   itemsPerPage?: number;
-  userId: string;
   subFolderId?: string;
   sortBy?: TSortBy;
   sortDirection?: TSortDirection;
