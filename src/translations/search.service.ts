@@ -30,6 +30,9 @@ export class SearchService {
       inComponents,
     } = params;
 
+    const project = await this.Service.assertActiveProject(userId, projectId);
+    const languageIds = this.Service.getProjectLanguageIds(project);
+
     const searchParams: { $regex: string; $options?: string } | string = { $regex: searchQuery };
 
     if (!caseSensitive) {
@@ -69,6 +72,7 @@ export class SearchService {
         value: searchParams,
         userId,
         projectId,
+        languageId: { $in: languageIds },
       });
     }
 
@@ -121,6 +125,7 @@ export class SearchService {
       projectId,
       allMatchedKeys.map(({ parentId }) => parentId),
       keysIds,
+      languageIds,
     );
 
     return {

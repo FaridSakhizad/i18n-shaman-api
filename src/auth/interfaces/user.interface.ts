@@ -10,6 +10,9 @@ export interface IUser extends Document {
   email: string;
   password: string;
   createdAt: Date;
+  active?: boolean;
+  verified?: boolean;
+  deleted?: boolean;
   settings: IUserSettings;
   preferences: IUserPreferences;
 }

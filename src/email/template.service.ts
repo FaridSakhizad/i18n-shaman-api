@@ -10,9 +10,10 @@ type Ctx = Record<string, unknown>;
 export class EmailTemplateService {
   private readonly baseDir = './src/emailTemplates';
   private layoutTpl?: Handlebars.TemplateDelegate;
+  private readonly initialization: Promise<void>;
 
   constructor() {
-    this.initialize().catch(console.error);
+    this.initialization = this.initialize();
   }
 
   private async initialize() {
@@ -40,6 +41,8 @@ export class EmailTemplateService {
   }
 
   async render({ templateName, layout = 'mainDefault' }: { templateName: string; layout?: string }, ctx: Ctx) {
+    await this.initialization;
+
     const childSrc = await fs.readFile(path.join('./src/emailTemplates', `${templateName}.mjml`), 'utf8');
 
     const bodyCompiler = Handlebars.compile(childSrc);
@@ -63,8 +66,9 @@ export class EmailTemplateService {
     });
 
     if (errors?.length) {
-      console.error('EMAIL TEMPLATES COMPILATION FAILED.');
-      console.error(errors);
+      const message = errors.map((error) => error.formattedMessage || error.message).join('\n');
+
+      throw new Error(`Email templates compilation failed: ${message}`);
     }
 
     return html;

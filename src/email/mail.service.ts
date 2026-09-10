@@ -2,24 +2,18 @@ import { EmailTemplateService } from './template.service';
 
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
-import * as dotenv from 'dotenv';
-
-dotenv.config();
+import { getFrontendUrl, getSmtpConfig } from '../config/env';
 
 @Injectable()
 export class MailService {
   private transporter;
+  private readonly from: string;
 
   constructor(private readonly tpl: EmailTemplateService) {
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: true,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
+    const smtpConfig = getSmtpConfig();
+
+    this.from = smtpConfig.from;
+    this.transporter = nodemailer.createTransport(smtpConfig);
   }
 
   async sendResetPasswordEmail(to: string, resetToken: string) {
@@ -28,22 +22,18 @@ export class MailService {
         templateName: 'resetPassword',
       },
       {
-        resetPasswordUrl: `${process.env.FRONTENT_URL}/reset-password/${resetToken}`,
+        resetPasswordUrl: `${getFrontendUrl()}/reset-password/${resetToken}`,
       },
     );
 
     const mailOptions = {
-      from: `"i18 Shaman" <no-reply@i18shaman.io>`,
+      from: this.from,
       to,
       subject: 'Password Reset',
       html,
     };
 
-    try {
-      return await this.transporter.sendMail(mailOptions);
-    } catch (err) {
-      throw err;
-    }
+    return this.transporter.sendMail(mailOptions);
   }
 
   async sendEmailVerification(to: string, verificationLinkToken: string) {
@@ -52,21 +42,17 @@ export class MailService {
         templateName: 'verifyUserEmail',
       },
       {
-        verificationUrl: `${process.env.FRONTENT_URL}/verify-email/${verificationLinkToken}`,
+        verificationUrl: `${getFrontendUrl()}/verify-email/${verificationLinkToken}`,
       },
     );
 
     const mailOptions = {
-      from: `"i18 Shaman" <no-reply@i18shaman.io>`,
+      from: this.from,
       to,
       subject: 'Account Activation',
       html,
     };
 
-    try {
-      return await this.transporter.sendMail(mailOptions);
-    } catch (err) {
-      throw err;
-    }
+    return this.transporter.sendMail(mailOptions);
   }
 }

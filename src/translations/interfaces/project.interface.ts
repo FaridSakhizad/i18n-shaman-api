@@ -15,13 +15,16 @@ export interface IProject extends Document {
   status?: 'active' | 'deleted';
   deletedAt?: Date | null;
   deletedBy?: string | null;
+  languages: IProjectLanguage[];
+  tags: ITag[];
+}
+
+export interface IProjectData extends IProject {
   keys: IKey[];
   values?: any;
-  languages: [];
   keysTotalCount?: number;
-  upstreamParents?: any;
+  upstreamParents?: IKey[];
   subfolder?: IKey;
-  tags: ITag[];
 }
 
 export interface ILanguage {
@@ -54,7 +57,6 @@ export enum EExportFormats {
   json = 'json',
   androidXml = 'android_xml',
   appleStrings = 'apple_string',
-  phpArray = 'php_array',
 }
 
 export interface IStructuredProjectData {

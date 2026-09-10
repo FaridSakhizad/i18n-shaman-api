@@ -1,4 +1,4 @@
-import { Inject, Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Model, Types, UpdateWriteOpResult } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 
@@ -53,7 +53,10 @@ export class AuthService {
   }
 
   async initEmailVerification(email: string, userId: string): Promise<void> {
-    await this.tokenModel.deleteMany({ userId });
+    await this.tokenModel.deleteMany({
+      userId,
+      type: { $in: ['email_verification', 'email_verification_security'] },
+    });
 
     const verifyEmailTokenDocument = await this.tokenService.createToken({
       userId,
@@ -89,7 +92,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new NotFoundException('User not found');
     }
 
     const updateResult = await this.userModel.updateOne(
@@ -102,11 +105,11 @@ export class AuthService {
 
     await this.tokenModel.deleteMany({
       userId,
-      type: ['email_verification', 'email_verification_security'],
+      type: { $in: ['email_verification', 'email_verification_security'] },
     });
 
     if (updateResult.matchedCount < 1) {
-      throw new UnauthorizedException('User not found');
+      throw new NotFoundException('User not found');
     }
 
     if (updateResult.matchedCount > 0 && updateResult.modifiedCount < 1) {
@@ -126,10 +129,18 @@ export class AuthService {
       throw new UnauthorizedException('Login/Passwords combination is incorrect');
     }
 
+    if (user.deleted || user.active === false) {
+      throw new ForbiddenException('User account is not active');
+    }
+
     const comparisonResult = await bcrypt.compare(password, user.password);
 
     if (!comparisonResult) {
       throw new UnauthorizedException('Login/Passwords combination is incorrect');
+    }
+
+    if (!user.verified) {
+      throw new ForbiddenException('Email is not verified');
     }
 
     session.userId = user._id;
@@ -153,7 +164,7 @@ export class AuthService {
     const user = await this.userModel.findOne({ _id: userId }).exec();
 
     if (!user) {
-      throw new ConflictException('User Not Found');
+      throw new NotFoundException('User Not Found');
     }
 
     const { _id, email, preferences } = user;
@@ -165,11 +176,15 @@ export class AuthService {
     } as IPublicUserData;
   }
 
-  async resetPasswordRequest(email: string): Promise<{ userId: string; resetToken: string }> {
+  async resetPasswordRequest(email: string): Promise<{ userId: string; resetToken: string } | null> {
     const user = await this.userModel.findOne({ email }).exec();
 
     if (!user) {
-      throw new ConflictException('User Not Found');
+      return null;
+    }
+
+    if (user.deleted || user.active === false) {
+      return null;
     }
 
     await this.tokenModel.deleteMany({
@@ -210,9 +225,15 @@ export class AuthService {
   }
 
   async setNewPassword(userId: string, password: string) {
+    const user = await this.userModel.findOne({ _id: userId }).exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
     await this.tokenModel.deleteMany({
       userId,
-      type: ['password_reset_security', 'password_reset'],
+      type: { $in: ['password_reset_security', 'password_reset'] },
     });
 
     const result = await this.userModel.updateOne(
@@ -221,6 +242,10 @@ export class AuthService {
         password: await bcrypt.hash(password, 12),
       },
     );
+
+    if (!user.verified) {
+      await this.initEmailVerification(user.email, userId);
+    }
 
     return result;
   }
@@ -238,7 +263,7 @@ export class AuthService {
   async updatePassword(userId: string, password: string): Promise<UpdateWriteOpResult> {
     await this.tokenModel.deleteMany({
       userId,
-      type: ['password_update'],
+      type: { $in: ['password_update'] },
     });
 
     const result = await this.userModel.updateOne(

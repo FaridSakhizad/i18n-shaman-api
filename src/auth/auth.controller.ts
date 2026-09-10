@@ -2,20 +2,28 @@ import {
   BadRequestException,
   Body,
   Req,
-  ConflictException,
   Controller,
   ForbiddenException,
   Get,
   Post,
   Query,
   Inject,
-  NotAcceptableException,
   NotFoundException,
   UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto, SetNewPasswordDto } from './dto/register.dto';
+import {
+  IMessageResponse,
+  ITokenResponse,
+  IVerifyEmailResponse,
+  RegisterDto,
+  ResetPasswordRequestDto,
+  ResetTokenDto,
+  SetNewPasswordDto,
+  VerificationTokenDto,
+  VerifyEmailDto,
+} from './dto/register.dto';
 import { IPublicUserData, IUpdatePassword } from './interfaces/user.interface';
 import { ApiResponse } from '../interfaces';
 import { TokenService } from './token.service';
@@ -46,7 +54,7 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(AuthGuard)
-  async logout(@Req() req): Promise<ApiResponse<{ message: string }>> {
+  async logout(@Req() req): Promise<ApiResponse<IMessageResponse>> {
     await req.session.destroy();
 
     return createApiResponse(req, { message: 'ok' });
@@ -70,7 +78,7 @@ export class AuthController {
   }
 
   @Post('validateVerificationToken')
-  async validateVerificationToken(@Req() req, @Body() { verificationToken }: { verificationToken: string }) {
+  async validateVerificationToken(@Req() req, @Body() { verificationToken }: VerificationTokenDto): Promise<ApiResponse<ITokenResponse>> {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
 
     if (!verificationTokenDocument) {
@@ -90,7 +98,7 @@ export class AuthController {
   }
 
   @Post('getEmailVerificationSecurityToken')
-  async getEmailVerificationSecurityToken(@Req() req, @Body() { verificationToken }: { verificationToken: string }) {
+  async getEmailVerificationSecurityToken(@Req() req, @Body() { verificationToken }: VerificationTokenDto): Promise<ApiResponse<ITokenResponse>> {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
 
     if (!verificationTokenDocument) {
@@ -109,7 +117,7 @@ export class AuthController {
   }
 
   @Post('verifyEmail')
-  async verifyEmail(@Req() req, @Body() { verificationToken, verificationSecurityToken }: { verificationToken: string; verificationSecurityToken: string }) {
+  async verifyEmail(@Req() req, @Body() { verificationToken, verificationSecurityToken }: VerifyEmailDto): Promise<ApiResponse<IVerifyEmailResponse>> {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
     const verificationSecurityTokenDocument = await this.tokenService.verifyToken(verificationSecurityToken, 'email_verification_security');
 
@@ -154,35 +162,37 @@ export class AuthController {
     return createApiResponse(req, result);
   }
 
-  @Get('resetPasswordRequest')
-  async resetPasswordRequest(@Req() req, @Query('email') email: string): Promise<ApiResponse<{ message: string }>> {
+  @Post('resetPasswordRequest')
+  async resetPasswordRequest(@Req() req, @Body() { email }: ResetPasswordRequestDto): Promise<ApiResponse<IMessageResponse>> {
     const { session, sessionID } = req;
 
     if (session && sessionID && session.userId && session.userLoggedIn) {
-      throw new ConflictException('Error: Reset Password Operation is Forbidden');
+      throw new ForbiddenException('Reset password operation is not available for authenticated sessions');
     }
 
-    const { userId, resetToken } = await this.authService.resetPasswordRequest(email);
+    const resetPasswordData = await this.authService.resetPasswordRequest(email);
 
-    session.userId = userId;
-    session.resetToken = resetToken;
+    if (resetPasswordData) {
+      session.userId = resetPasswordData.userId;
+      session.resetToken = resetPasswordData.resetToken;
+    }
 
     return createApiResponse(req, { message: 'Reset Password Request Successful' });
   }
 
   @Get('getPasswordResetSecurityToken')
-  async getPasswordResetSecurityToken(@Req() req): Promise<ApiResponse<any>> {
+  async getPasswordResetSecurityToken(@Req() req): Promise<ApiResponse<ITokenResponse>> {
     return this.createPasswordResetSecurityTokenResponse(req, req.session.resetToken);
   }
 
   @Post('setNewPassword')
-  async setNewPassword(@Req() req, @Body() setNewPasswordDto: SetNewPasswordDto): Promise<ApiResponse<any>> {
+  async setNewPassword(@Req() req, @Body() setNewPasswordDto: SetNewPasswordDto): Promise<ApiResponse<unknown>> {
     const { session } = req;
 
     const { password, resetToken, securityToken } = setNewPasswordDto;
 
     if (password.length < 3) {
-      throw new NotAcceptableException({
+      throw new BadRequestException({
         error: 'Reset Password Failed',
         message: 'Password is invalid',
       });
@@ -234,7 +244,7 @@ export class AuthController {
   }
 
   @Post('validateResetToken')
-  async validateResetToken(@Req() req, @Body() { resetToken }: { resetToken: string }): Promise<ApiResponse<any>> {
+  async validateResetToken(@Req() req, @Body() { resetToken }: ResetTokenDto): Promise<ApiResponse<ITokenResponse>> {
     const resetTokenDocument = await this.tokenService.verifyToken(resetToken, 'password_reset');
     const { session } = req;
 
@@ -262,14 +272,14 @@ export class AuthController {
   @Post('getPasswordResetSecurityToken')
   async getPasswordResetSecurityTokenPost(
     @Req() req,
-    @Body() { resetToken }: { resetToken: string },
-  ): Promise<ApiResponse<any>> {
+    @Body() { resetToken }: ResetTokenDto,
+  ): Promise<ApiResponse<ITokenResponse>> {
     return this.createPasswordResetSecurityTokenResponse(req, resetToken);
   }
 
   @Get('getUpdatePasswordSecurityToken')
   @UseGuards(AuthGuard)
-  async getUpdatePasswordSecurityToken(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<any>> {
+  async getUpdatePasswordSecurityToken(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<ITokenResponse>> {
     const { session } = req;
 
     await this.tokenModel.deleteMany({
@@ -288,7 +298,7 @@ export class AuthController {
     return createApiResponse(req, { token: updateTokenDocument.token });
   }
 
-  private async createPasswordResetSecurityTokenResponse(req, resetToken: string): Promise<ApiResponse<any>> {
+  private async createPasswordResetSecurityTokenResponse(req, resetToken: string): Promise<ApiResponse<ITokenResponse>> {
     const { session } = req;
 
     if (session.userLoggedIn) {
@@ -299,7 +309,7 @@ export class AuthController {
     }
 
     if (!resetToken) {
-      throw new ForbiddenException({
+      throw new BadRequestException({
         error: 'Reset Token is Invalid',
         message: 'Reset token is missing',
       });
@@ -308,7 +318,7 @@ export class AuthController {
     const resetTokenDocument = await this.tokenService.verifyToken(resetToken, 'password_reset');
 
     if (!resetTokenDocument || (session.resetToken && session.resetToken !== resetToken)) {
-      throw new ForbiddenException({
+      throw new BadRequestException({
         error: 'Reset Token is Invalid',
         message: 'Reset token is invalid or expired',
       });
@@ -337,7 +347,7 @@ export class AuthController {
     @Req() req,
     @Body() { securityToken, password, newPassword, confirmPassword }: IUpdatePassword,
     @CurrentUserId() userId: string,
-  ): Promise<ApiResponse<any>> {
+  ): Promise<ApiResponse<Record<string, never>>> {
     const { session } = req;
 
     const isPasswordValid = await this.authService.verifyUserPassword(userId, password);
@@ -358,7 +368,7 @@ export class AuthController {
     const validationResult = this.validationService.validatePassword(newPassword);
 
     if (newPassword !== confirmPassword || !validationResult.success) {
-      throw new NotAcceptableException({
+      throw new BadRequestException({
         error: 'Update Password Failed',
         message: 'New password is invalid',
         errors: validationResult.errors ? validationResult.errors.map((error) => ({ ...error, field: 'password' })) : [],

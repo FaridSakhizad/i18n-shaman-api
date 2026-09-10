@@ -17,7 +17,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 
 import { Service } from './service';
-import { EExportFormats, IEditTag, ILanguage, IProject } from './interfaces/project.interface';
+import { EExportFormats, IEditTag, ILanguage, IProject, IProjectData } from './interfaces/project.interface';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddLanguageDto } from './dto/add-language.dto';
 import { CreateEntityDto } from './dto/create-entity.dto';
@@ -27,7 +27,6 @@ import { AddMultipleLanguagesDto } from './dto/add-multiple-languages.dto';
 import { MultipleLanguageVisibilityDto } from './dto/multiple-languages-visibility.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
 import { IKey } from './interfaces/key.interface';
-import { IResponse } from '../interfaces';
 import { GetProjectByIdDto, TSortBy, TSortDirection } from './dto/get-project-by-id.dto';
 import { DeleteProjectEntitiesDto } from './dto/delete-entities.dto';
 import { GetEntitiesChildrenByIdsDto } from './dto/get-entities-children-by-ids.dto';
@@ -35,6 +34,23 @@ import { MoveProjectEntities } from './dto/MoveProjectEntities.dto';
 import { AddTagsToEntityDto, CreateTagDto, DeleteTagDto, EditTagDto } from './dto/tags.dto';
 import { AssignTagToEntitiesDto } from './dto/tags.dto';
 import { createApiResponse } from '../common/http-response';
+import { ApiResponse } from '../interfaces';
+import {
+  AddRawLanguagesDto,
+  DeleteProjectDto,
+  DeleteProjectLanguageDto,
+  ExportProjectQueryDto,
+  IEntityContentResponse,
+  IEntityMutationResponse,
+  IEntitiesResponse,
+  IImportComponentsMetaDataItem,
+  IImportResult,
+  IKeyDataResponse,
+  IKeyMutationResponse,
+  IOkResponse,
+  ITagListResponse,
+  UpdateProjectDto,
+} from './dto/project-api.dto';
 
 @Controller()
 export class TransController {
@@ -42,7 +58,7 @@ export class TransController {
 
   @Post('createProject')
   @UseGuards(AuthGuard)
-  async createProject(@Req() req, @Body() createProjectDto: CreateProjectDto, @CurrentUserId() userId: string) {
+  async createProject(@Req() req, @Body() createProjectDto: CreateProjectDto, @CurrentUserId() userId: string): Promise<ApiResponse<IProject[]>> {
     const result = await this.Service.createProject(createProjectDto, userId);
 
     return createApiResponse(req, result);
@@ -50,7 +66,7 @@ export class TransController {
 
   @Post('updateProject')
   @UseGuards(AuthGuard)
-  async updateProject(@Req() req, @Body() projectData, @CurrentUserId() userId: string) {
+  async updateProject(@Req() req, @Body() projectData: UpdateProjectDto, @CurrentUserId() userId: string): Promise<ApiResponse<IProject>> {
     const result = await this.Service.updateProject(projectData, userId);
 
     return createApiResponse(req, result);
@@ -58,15 +74,20 @@ export class TransController {
 
   @Delete('deleteProject')
   @UseGuards(AuthGuard)
-  async deleteProject(@Req() req, @Query('projectId') projectId: string, @CurrentUserId() userId: string) {
-    const result = await this.Service.deleteProject(projectId, userId);
+  async deleteProject(
+    @Req() req,
+    @Body() deleteProjectDto: DeleteProjectDto,
+    @Query('projectId') projectIdFromQuery: string,
+    @CurrentUserId() userId: string,
+  ): Promise<ApiResponse<IProject[]>> {
+    const result = await this.Service.deleteProject(deleteProjectDto?.projectId || projectIdFromQuery, userId);
 
     return createApiResponse(req, result);
   }
 
   @Get('getUserProjects')
   @UseGuards(AuthGuard)
-  async getUserProjects(@Req() req, @CurrentUserId() userId: string) {
+  async getUserProjects(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<IProject[]>> {
     const result = await this.Service.getUserProjects(userId);
 
     return createApiResponse(req, result);
@@ -84,10 +105,10 @@ export class TransController {
     @Query('filters') filters: string,
     @Query('tags') tags: string,
     @Query('search') searchQuery: string,
-    @Query('search_params') searchParams: string,
+    @Query('searchParams') searchParams: string,
     @Req() req,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IProjectData>> {
     const result = await this.Service.getUserProjectById({
       projectId,
       page: parseInt(page, 10),
@@ -111,7 +132,7 @@ export class TransController {
     @Query('projectId') projectId: string,
     @Query('keyId') keyId: string,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IKeyDataResponse>> {
     const result = await this.Service.getKeyData(projectId, userId, keyId);
 
     return createApiResponse(req, result);
@@ -124,7 +145,7 @@ export class TransController {
     @Query('projectId') projectId: string,
     @Query('componentId') componentId: string,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IEntityContentResponse>> {
     const result = await this.Service.getEntityContent(projectId, userId, componentId);
 
     return createApiResponse(req, result);
@@ -132,7 +153,11 @@ export class TransController {
 
   @Post('getEntitiesChildrenByIds')
   @UseGuards(AuthGuard)
-  async getEntitiesChildrenByIds(@Req() req, @Body() getEntitiesChildrenByIdsDto: GetEntitiesChildrenByIdsDto, @CurrentUserId() userId: string) {
+  async getEntitiesChildrenByIds(
+    @Req() req,
+    @Body() getEntitiesChildrenByIdsDto: GetEntitiesChildrenByIdsDto,
+    @CurrentUserId() userId: string,
+  ): Promise<ApiResponse<IKey[]>> {
     const { projectId, ids } = getEntitiesChildrenByIdsDto;
     const result = await this.Service.getEntitiesChildrenByIds(projectId, userId, ids);
 
@@ -141,7 +166,7 @@ export class TransController {
 
   @Post('createProjectEntity')
   @UseGuards(AuthGuard)
-  async createProjectEntity(@Req() req, @Body() createKeyEntity: CreateEntityDto, @CurrentUserId() userId: string) {
+  async createProjectEntity(@Req() req, @Body() createKeyEntity: CreateEntityDto, @CurrentUserId() userId: string): Promise<ApiResponse<unknown>> {
     const result = await this.Service.createProjectEntity(createKeyEntity, userId);
 
     return createApiResponse(req, result);
@@ -149,7 +174,7 @@ export class TransController {
 
   @Delete('deleteProjectEntities')
   @UseGuards(AuthGuard)
-  async deleteProjectEntities(@Req() req, @Body() body: DeleteProjectEntitiesDto, @CurrentUserId() userId: string) {
+  async deleteProjectEntities(@Req() req, @Body() body: DeleteProjectEntitiesDto, @CurrentUserId() userId: string): Promise<ApiResponse<IEntityMutationResponse>> {
     const { projectId, entityIds } = body;
     const result = await this.Service.deleteProjectEntities(userId, projectId, entityIds);
 
@@ -158,7 +183,7 @@ export class TransController {
 
   @Post('duplicateEntities')
   @UseGuards(AuthGuard)
-  async duplicateEntities(@Req() req, @Body() body: DeleteProjectEntitiesDto, @CurrentUserId() userId: string) {
+  async duplicateEntities(@Req() req, @Body() body: DeleteProjectEntitiesDto, @CurrentUserId() userId: string): Promise<ApiResponse<IEntityMutationResponse>> {
     const { projectId, entityIds } = body;
     const result = await this.Service.duplicateEntities(userId, projectId, entityIds);
 
@@ -167,7 +192,7 @@ export class TransController {
 
   @Post('moveEntities')
   @UseGuards(AuthGuard)
-  async moveEntities(@Req() req, @Body() body: MoveProjectEntities, @CurrentUserId() userId: string) {
+  async moveEntities(@Req() req, @Body() body: MoveProjectEntities, @CurrentUserId() userId: string): Promise<ApiResponse<IEntityMutationResponse>> {
     const { projectId, entityIds, destinationEntityId } = body;
     const result = await this.Service.moveEntities(userId, projectId, entityIds, destinationEntityId);
 
@@ -176,7 +201,7 @@ export class TransController {
 
   @Post('updateKey')
   @UseGuards(AuthGuard)
-  async updateKey(@Req() req, @Body() updateKeyDto: UpdateKeyDto, @CurrentUserId() userId: string) {
+  async updateKey(@Req() req, @Body() updateKeyDto: UpdateKeyDto, @CurrentUserId() userId: string): Promise<ApiResponse<IKeyMutationResponse>> {
     const result = await this.Service.updateProjectEntity(updateKeyDto, userId);
 
     return createApiResponse(req, result);
@@ -184,7 +209,7 @@ export class TransController {
 
   @Post('addLanguage')
   @UseGuards(AuthGuard)
-  async addLanguage(@Req() req, @Body() addLanguageDto: AddLanguageDto, @CurrentUserId() userId: string) {
+  async addLanguage(@Req() req, @Body() addLanguageDto: AddLanguageDto, @CurrentUserId() userId: string): Promise<ApiResponse<unknown>> {
     const result = await this.Service.addLanguage(addLanguageDto, userId);
 
     return createApiResponse(req, result);
@@ -192,7 +217,7 @@ export class TransController {
 
   @Post('updateLanguage')
   @UseGuards(AuthGuard)
-  async updateLanguage(@Req() req, @Body() updateLanguageDto: UpdateLanguageDto, @CurrentUserId() userId: string) {
+  async updateLanguage(@Req() req, @Body() updateLanguageDto: UpdateLanguageDto, @CurrentUserId() userId: string): Promise<ApiResponse<IProject>> {
     const result = await this.Service.updateLanguage(updateLanguageDto, userId);
 
     return createApiResponse(req, result);
@@ -200,7 +225,11 @@ export class TransController {
 
   @Post('addMultipleLanguages')
   @UseGuards(AuthGuard)
-  async addMultipleProjectLanguages(@Req() req, @Body() addMultipleLanguagesDto: AddMultipleLanguagesDto, @CurrentUserId() userId: string) {
+  async addMultipleProjectLanguages(
+    @Req() req,
+    @Body() addMultipleLanguagesDto: AddMultipleLanguagesDto,
+    @CurrentUserId() userId: string,
+  ): Promise<ApiResponse<IProject>> {
     const result = await this.Service.addMultipleProjectLanguages(addMultipleLanguagesDto, userId);
 
     return createApiResponse(req, result);
@@ -212,7 +241,7 @@ export class TransController {
     @Req() req,
     @Body() createTagDto: CreateTagDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<ITagListResponse>> {
     const result = await this.Service.createTag(createTagDto, userId);
 
     return createApiResponse(req, result);
@@ -224,7 +253,7 @@ export class TransController {
     @Req() req,
     @Body() addTagsToEntityDto: AddTagsToEntityDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<ITagListResponse>> {
     const result = await this.Service.addTagsToEntities(addTagsToEntityDto, userId);
 
     return createApiResponse(req, result);
@@ -236,7 +265,7 @@ export class TransController {
     @Req() req,
     @Body() assignTagToEntitiesDto: AssignTagToEntitiesDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IEntitiesResponse>> {
     const result = await this.Service.assignTagToEntities(assignTagToEntitiesDto, userId);
 
     return createApiResponse(req, result);
@@ -248,7 +277,7 @@ export class TransController {
     @Req() req,
     @Body() editTagDto: EditTagDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IOkResponse>> {
     const result = await this.Service.updateTag(editTagDto as IEditTag, userId);
 
     return createApiResponse(req, result);
@@ -260,7 +289,7 @@ export class TransController {
     @Req() req,
     @Body() deleteTagDto: DeleteTagDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<ITagListResponse>> {
     const result = await this.Service.deleteTag(deleteTagDto, userId);
 
     return createApiResponse(req, result);
@@ -272,7 +301,7 @@ export class TransController {
     @Req() req,
     @Body() assignTagToEntitiesDto: AssignTagToEntitiesDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IEntitiesResponse>> {
     const result = await this.Service.detachTagFromEntities(assignTagToEntitiesDto, userId);
 
     return createApiResponse(req, result);
@@ -282,10 +311,13 @@ export class TransController {
   @UseGuards(AuthGuard)
   async deleteProjectLanguage(
     @Req() req,
-    @Query('languageId') languageId: string,
-    @Query('projectId') projectId: string,
+    @Body() deleteProjectLanguageDto: DeleteProjectLanguageDto,
+    @Query('languageId') languageIdFromQuery: string,
+    @Query('projectId') projectIdFromQuery: string,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IProject>> {
+    const languageId = deleteProjectLanguageDto?.languageId || languageIdFromQuery;
+    const projectId = deleteProjectLanguageDto?.projectId || projectIdFromQuery;
     const result = await this.Service.deleteProjectLanguage(projectId, languageId, userId);
 
     return createApiResponse(req, result);
@@ -293,7 +325,7 @@ export class TransController {
 
   @Post('setLanguageVisibility')
   @UseGuards(AuthGuard)
-  async setLanguageVisibility(@Req() req, @Body() languageVisibilityDto: LanguageVisibilityDto, @CurrentUserId() userId: string) {
+  async setLanguageVisibility(@Req() req, @Body() languageVisibilityDto: LanguageVisibilityDto, @CurrentUserId() userId: string): Promise<ApiResponse<IProject>> {
     const result = await this.Service.setLanguageVisibility(languageVisibilityDto, userId);
 
     return createApiResponse(req, result);
@@ -305,7 +337,7 @@ export class TransController {
     @Req() req,
     @Body() multipleLanguageVisibilityDto: MultipleLanguageVisibilityDto,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IProject>> {
     const result = await this.Service.setMultipleLanguagesVisibility(multipleLanguageVisibilityDto, userId);
 
     return createApiResponse(req, result);
@@ -314,22 +346,29 @@ export class TransController {
   @Get('exportProject')
   @UseGuards(AuthGuard)
   async exportProject(
-    @Query('projectId') projectId: string,
-    @Query('format') format: EExportFormats,
-    @Query('format_settings') formatSettings: any = {},
+    @Query() exportProjectQueryDto: ExportProjectQueryDto,
     @CurrentUserId() userId: string,
     @Res() res: Response,
-  ): Promise<IResponse> {
+  ): Promise<void> {
+    const {
+      projectId,
+      format,
+      formatSettings = {},
+    } = exportProjectQueryDto;
+
     if (format === EExportFormats.json) {
-      return await this.Service.exportProjectToJson(projectId, formatSettings, userId, res);
+      await this.Service.exportProjectToJson(projectId, formatSettings, userId, res);
+      return;
     }
 
     if (format === EExportFormats.androidXml) {
-      return await this.Service.exportProjectToAndroidXml(projectId, formatSettings, userId, res);
+      await this.Service.exportProjectToAndroidXml(projectId, formatSettings, userId, res);
+      return;
     }
 
     if (format === EExportFormats.appleStrings) {
-      return await this.Service.exportProjectToAppleStrings(projectId, formatSettings, userId, res);
+      await this.Service.exportProjectToAppleStrings(projectId, formatSettings, userId, res);
+      return;
     }
 
     throw new BadRequestException({
@@ -347,7 +386,7 @@ export class TransController {
     @Body('metaData') metaData: string,
     @CurrentUserId() userId: string,
     @UploadedFiles() files: Express.Multer.File[],
-  ) {
+  ): Promise<ApiResponse<IImportResult>> {
     const result = await this.Service.importDataToProject({ projectId, files, metaData }, userId);
 
     return createApiResponse(req, result);
@@ -362,11 +401,19 @@ export class TransController {
     @Body('metaData') metaData: string[] | string,
     @CurrentUserId() userId: string,
     @UploadedFiles() files: Express.Multer.File[] & { code: string },
-  ) {
-    const metaDataParsed =
-      typeof metaData === 'string'
+  ): Promise<ApiResponse<IImportResult>> {
+    let metaDataParsed: IImportComponentsMetaDataItem[];
+
+    try {
+      metaDataParsed = typeof metaData === 'string'
         ? [JSON.parse(metaData as string)]
         : metaData.map((dataItem) => JSON.parse(dataItem));
+    } catch {
+      throw new BadRequestException({
+        error: 'Import Failed',
+        message: 'Import metadata is invalid',
+      });
+    }
 
     const result = await this.Service.importComponentsDataToProject({
       projectId,
@@ -374,19 +421,19 @@ export class TransController {
       metaData: metaDataParsed,
     }, userId);
 
-    return createApiResponse(req, result.metaData);
+    return createApiResponse(req, result);
   }
 
   @Post('addMultipleRawLanguages')
   @UseGuards(AuthGuard)
-  async addMultipleRawLanguages(@Req() req, @Body() data: any[]) {
+  async addMultipleRawLanguages(@Req() req, @Body() data: AddRawLanguagesDto): Promise<ApiResponse<ILanguage[]>> {
     const result = await this.Service.addMultipleRawLanguages(data);
 
     return createApiResponse(req, result);
   }
 
   @Get('getAppLanguagesData')
-  async getAppLanguagesData(@Req() req) {
+  async getAppLanguagesData(@Req() req): Promise<ApiResponse<ILanguage[]>> {
     const result = await this.Service.getAppLanguagesData();
 
     return createApiResponse(req, result);
@@ -399,7 +446,7 @@ export class TransController {
     @Query('projectId') projectId: string,
     @Query('parentId') parentId: string,
     @CurrentUserId() userId: string,
-  ) {
+  ): Promise<ApiResponse<IKey[]>> {
     const result = await this.Service.getMultipleEntitiesDataByParentId(projectId, parentId, userId);
 
     return createApiResponse(req, result);

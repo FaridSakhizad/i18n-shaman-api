@@ -1,7 +1,7 @@
 import * as archiver from 'archiver';
 
 import { Model, SortOrder } from 'mongoose';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { js2xml } from 'xml-js';
 
 import {
@@ -14,11 +14,10 @@ import {
   ILanguage,
   ILanguageMap,
   IProject,
+  IProjectData,
   IProjectLanguage,
   IStructuredProjectData, ITag,
 } from './interfaces/project.interface';
-
-import { EStatusCode, IResponse } from '../interfaces';
 
 import { IKey, IKeyTag } from './interfaces/key.interface';
 
@@ -35,6 +34,17 @@ import { IKeyValue } from './interfaces/keyValue.interface';
 import { KeyHelperService } from './keyHelper.service';
 import { GetProjectByIdDto } from './dto/get-project-by-id.dto';
 import { EditTagDto } from './dto/tags.dto';
+import {
+  AddRawLanguagesDto,
+  ExportFormatSettings,
+  IImportComponentsRequest,
+  IImportedDocument,
+  IImportRequest,
+  IImportResult,
+  JsonImportFileMetaDataItem,
+  JsonImportFileMetaDataMap,
+  UpdateProjectDto,
+} from './dto/project-api.dto';
 
 @Injectable()
 export class Service {
@@ -58,6 +68,51 @@ export class Service {
     };
   }
 
+  async assertActiveProject(userId: string, projectId: string): Promise<IProject> {
+    const project = await this.projectModel
+      .findOne(this.getActiveProjectFilter(userId, projectId))
+      .exec();
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return project;
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private getPathCacheContainsEntityFilter(entityIds: string[]) {
+    return {
+      $or: entityIds.map((id) => ({
+        pathCache: {
+          $regex: `(^|/)${this.escapeRegExp(id)}(/|$)`,
+        },
+      })),
+    };
+  }
+
+  private findEntityIdInPathCache(pathCache: string, entityIds: string[]): string | null {
+    const pathSegments = pathCache.split('/').filter(Boolean);
+
+    return entityIds.find((id) => pathSegments.includes(id)) || null;
+  }
+
+  private assertAllEntitiesFound(entities: IKey[], entityIds: string[]): void {
+    const foundIds = new Set(entities.map(({ id }) => id));
+    const hasMissingEntities = entityIds.some((id) => !foundIds.has(id));
+
+    if (hasMissingEntities) {
+      throw new NotFoundException('Entity not found');
+    }
+  }
+
+  getProjectLanguageIds(project: IProject): string[] {
+    return (project.languages || []).map(({ id }) => id);
+  }
+
   async getUserProjects(userId: string): Promise<IProject[]> {
     return this.projectModel.find(this.getActiveProjectFilter(userId)).exec();
   }
@@ -75,20 +130,23 @@ export class Service {
     return userProjects;
   }
 
-  async updateProject(data, userId: string): Promise<IProject> {
+  async updateProject(data: UpdateProjectDto & { userId?: string }, userId: string): Promise<IProject> {
     const { projectId, userId: _ignoredUserId, ...dataPatch } = data;
 
-    await this.projectModel.updateOne(
-      {
-        ...this.getActiveProjectFilter(userId, projectId),
-      },
+    const project = await this.projectModel.findOneAndUpdate(
+      this.getActiveProjectFilter(userId, projectId),
       dataPatch,
+      { new: true },
     );
 
-    return this.projectModel.findOne(this.getActiveProjectFilter(userId, projectId));
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return project;
   }
 
-  async deleteProject(projectId, userId): Promise<IProject[]> {
+  async deleteProject(projectId: string, userId: string): Promise<IProject[]> {
     const deleteResult = await this.projectModel.findOneAndUpdate(
       this.getActiveProjectFilter(userId, projectId),
       {
@@ -180,6 +238,8 @@ export class Service {
       id: entityIds,
     });
 
+    this.assertAllEntitiesFound(entities, entityIds);
+
     await Promise.all(entities.map((entity) => {
       if (!entity.tags) {
         entity.tags = [];
@@ -216,6 +276,8 @@ export class Service {
       projectId,
       id: entityIds,
     });
+
+    this.assertAllEntitiesFound(entities, entityIds);
 
     const filteredEntities = entities.filter(({ tags }) => !tags || tags.every((tag) => tag.id !== tagId));
 
@@ -258,8 +320,10 @@ export class Service {
       id: entityIds,
     });
 
+    this.assertAllEntitiesFound(entities, entityIds);
+
     await Promise.all(entities.map((entity) => {
-      entity.tags = entity.tags.filter((tag) => tag.id !== tagId);
+      entity.tags = (entity.tags || []).filter((tag) => tag.id !== tagId);
 
       return entity.save();
     }));
@@ -375,32 +439,26 @@ export class Service {
   }
 
   async deleteProjectEntities(userId: string, projectId: string, entityIds: string[]) {
+    await this.assertActiveProject(userId, projectId);
+
     const entities = await this.keyModel.find({
       userId,
       projectId,
       id: entityIds,
     });
 
-    if (!entities || entities.length < 1) {
-      throw new NotFoundException('Entity not found');
-    }
+    this.assertAllEntitiesFound(entities, entityIds);
 
     const childrenEntitiesDeleteResult = await this.keyModel.deleteMany({
       userId,
       projectId,
-      $or: entityIds.map((id) => ({ pathCache: { $regex: id, $options: 'i' } })),
-    });
-
-    const childrenValues = await this.keyValueModel.find({
-      userId,
-      projectId,
-      $or: entityIds.map((id) => ({ pathCache: { $regex: id, $options: 'i' } })),
+      ...this.getPathCacheContainsEntityFilter(entityIds),
     });
 
     const childrenValuesDeleteResult = await this.keyValueModel.deleteMany({
       userId,
       projectId,
-      $or: entityIds.map((id) => ({ pathCache: { $regex: id, $options: 'i' } })),
+      ...this.getPathCacheContainsEntityFilter(entityIds),
     });
 
     const entityDeleteResult = await this.keyModel.deleteMany({
@@ -437,15 +495,15 @@ export class Service {
   }
 
   async duplicateEntities(userId: string, projectId: string, entityIds: string[]) {
+    await this.assertActiveProject(userId, projectId);
+
     const rootEntities = await this.keyModel.find({
       userId,
       projectId,
       id: entityIds,
     });
 
-    if (!rootEntities || rootEntities.length < 1) {
-      throw new NotFoundException('Entity not found');
-    }
+    this.assertAllEntitiesFound(rootEntities, entityIds);
 
     const createdAt = +new Date();
 
@@ -500,7 +558,7 @@ export class Service {
       .find({
         userId,
         projectId,
-        pathCache: { $regex: entityIds.join('|'), $options: 'i' },
+        ...this.getPathCacheContainsEntityFilter(entityIds),
       })
       .lean();
 
@@ -540,7 +598,7 @@ export class Service {
       .find({
         userId,
         projectId,
-        pathCache: { $regex: entityIds.join('|'), $options: 'i' },
+        ...this.getPathCacheContainsEntityFilter(entityIds),
       })
       .lean();
 
@@ -568,11 +626,14 @@ export class Service {
     };
   }
 
-  getMovedRootEntitiesPathCache(destinationDocument: IKey) {
+  getMovedRootEntitiesPathCache(destinationDocument: { pathCache: string; id: string }) {
     return `${destinationDocument.pathCache}/${destinationDocument.id}`;
   }
 
-  getMovedChildPathCache(document: IKey & { matchedRootId: string }, destinationDocument: IKey) {
+  getMovedChildPathCache(
+    document: { pathCache: string; matchedRootId: string },
+    destinationDocument: { pathCache: string; id: string },
+  ) {
     const { pathCache: originalPathCache, matchedRootId } = document;
     const { pathCache: destinationPathCache } = destinationDocument;
 
@@ -585,7 +646,9 @@ export class Service {
     return `${destinationPathCache}/${destinationDocumentId}${relativePathCache}`;
   }
 
-  async moveEntities(userId, projectId, entityIds, destinationEntityId) {
+  async moveEntities(userId: string, projectId: string, entityIds: string[], destinationEntityId: string) {
+    await this.assertActiveProject(userId, projectId);
+
     const destinationDocument = await this.keyModel
       .findOne({
         userId,
@@ -608,8 +671,19 @@ export class Service {
       throw new NotFoundException('Destination entity not found');
     }
 
-    if (!rootEntities || rootEntities.length < 1) {
-      throw new NotFoundException('Entity not found');
+    this.assertAllEntitiesFound(rootEntities as IKey[], entityIds);
+
+    if (
+      !docIsMovingToRoot
+      && (
+        entityIds.includes(destinationEntityId)
+        || this.findEntityIdInPathCache(`${destinationDocument.pathCache}/${destinationDocument.id}`, entityIds)
+      )
+    ) {
+      throw new BadRequestException({
+        error: 'Move Failed',
+        message: 'Entity cannot be moved into itself or its child',
+      });
     }
 
     const rootEntitiesOps = rootEntities.map((document) => {
@@ -659,45 +733,21 @@ export class Service {
     await this.keyValueModel.bulkWrite(rootEntitiesValuesOps, { ordered: false });
 
     /* MOVING CHILDREN */
-    const childEntities = await this.keyModel.aggregate([
-      {
-        $match: {
-          userId,
-          projectId,
-          pathCache: { $regex: entityIds.join('|') },
-        },
-      },
-      {
-        $addFields: {
-          _match: {
-            $regexFind: {
-              input: '$pathCache',
-              regex: entityIds.join('|'),
-            },
-          },
-        },
-      },
-      {
-        $addFields: {
-          matchedRootId: '$_match.match',
-        },
-      },
-      {
-        $addFields: {
-          orderIndex: {
-            $indexOfArray: [entityIds, '$matchedRootId'],
-          },
-        },
-      },
-      {
-        $project: {
-          _match: 0,
-          orderIndex: 0,
-        },
-      },
-    ]);
+    const childEntities = await this.keyModel
+      .find({
+        userId,
+        projectId,
+        ...this.getPathCacheContainsEntityFilter(entityIds),
+      })
+      .lean();
 
     const childEntitiesOps = childEntities.map((document) => {
+      const matchedRootId = this.findEntityIdInPathCache(document.pathCache, entityIds);
+
+      if (!matchedRootId) {
+        throw new NotFoundException('Entity not found');
+      }
+
       return {
         updateOne: {
           filter: {
@@ -706,8 +756,8 @@ export class Service {
           update: {
             $set: {
               pathCache: docIsMovingToRoot
-                ? this.getMovedChildPathCache(document, { pathCache: '#', id: '#' } as IKey)
-                : this.getMovedChildPathCache(document, destinationDocument),
+                ? this.getMovedChildPathCache({ ...document, matchedRootId }, { pathCache: '#', id: '#' } as IKey)
+                : this.getMovedChildPathCache({ ...document, matchedRootId }, destinationDocument),
             },
           },
         },
@@ -716,45 +766,21 @@ export class Service {
 
     await this.keyModel.bulkWrite(childEntitiesOps, { ordered: false });
 
-    const childEntitiesValues = await this.keyValueModel.aggregate([
-      {
-        $match: {
-          userId,
-          projectId,
-          pathCache: { $regex: entityIds.join('|') },
-        },
-      },
-      {
-        $addFields: {
-          _match: {
-            $regexFind: {
-              input: '$pathCache',
-              regex: entityIds.join('|'),
-            },
-          },
-        },
-      },
-      {
-        $addFields: {
-          matchedRootId: '$_match.match',
-        },
-      },
-      {
-        $addFields: {
-          orderIndex: {
-            $indexOfArray: [entityIds, '$matchedRootId'],
-          },
-        },
-      },
-      {
-        $project: {
-          _match: 0,
-          orderIndex: 0,
-        },
-      },
-    ]);
+    const childEntitiesValues = await this.keyValueModel
+      .find({
+        userId,
+        projectId,
+        ...this.getPathCacheContainsEntityFilter(entityIds),
+      })
+      .lean();
 
     const childEntitiesValuesOps = childEntitiesValues.map((document) => {
+      const matchedRootId = this.findEntityIdInPathCache(document.pathCache, entityIds);
+
+      if (!matchedRootId) {
+        throw new NotFoundException('Entity not found');
+      }
+
       return {
         updateOne: {
           filter: {
@@ -763,8 +789,8 @@ export class Service {
           update: {
             $set: {
               pathCache: docIsMovingToRoot
-                ? this.getMovedChildPathCache(document, { pathCache: '#', id: '#' } as IKey)
-                : this.getMovedChildPathCache(document, destinationDocument),
+                ? this.getMovedChildPathCache({ ...document, matchedRootId }, { pathCache: '#', id: '#' } as IKey)
+                : this.getMovedChildPathCache({ ...document, matchedRootId }, destinationDocument),
             },
           },
         },
@@ -778,7 +804,7 @@ export class Service {
     };
   }
 
-  async getAggregatedValues(userId: string, projectId: string, parentIds: string[], keyIds?: string[]) {
+  async getAggregatedValues(userId: string, projectId: string, parentIds: string[], keyIds?: string[], languageIds?: string[]) {
     const aggregatedValues = await this.keyValueModel.aggregate([
       {
         $match: {
@@ -786,6 +812,7 @@ export class Service {
           projectId,
           ...(parentIds ? { parentId: { $in: parentIds } } : {}),
           ...(keyIds ? { keyId: { $in: keyIds } } : {}),
+          ...(languageIds ? { languageId: { $in: languageIds } } : {}),
         },
       },
       {
@@ -836,6 +863,8 @@ export class Service {
 
   async updateProjectEntity(updateKeyDto: UpdateKeyDto, userId: string) {
     const { id, label, description, values, projectId, parentId } = updateKeyDto;
+
+    const project = await this.assertActiveProject(userId, projectId);
 
     const updatedAt = +new Date();
 
@@ -897,7 +926,7 @@ export class Service {
 
     await this.keyValueModel.bulkWrite(bulkOps);
 
-    const aggregatedValues = await this.getAggregatedValues(userId, projectId, [parentId]);
+    const aggregatedValues = await this.getAggregatedValues(userId, projectId, [parentId], undefined, this.getProjectLanguageIds(project));
 
     return {
       key,
@@ -905,7 +934,7 @@ export class Service {
     };
   }
 
-  async getUserProjectById(params: GetProjectByIdDto, userId: string): Promise<IProject> {
+  async getUserProjectById(params: GetProjectByIdDto, userId: string): Promise<IProjectData> {
     const {
       projectId,
       page,
@@ -1009,6 +1038,9 @@ export class Service {
       ...filterParams,
     };
 
+    const { languages: projectLanguages } = project;
+    const projectLanguageIds = this.getProjectLanguageIds(project);
+
     const keyIdsToExclude = [];
 
     if (filterData[EFilter.hideEmpty]) {
@@ -1033,6 +1065,7 @@ export class Service {
                       { $eq: ['$keyId', '$$keyId'] },
                       { $eq: ['$userId', userId] },
                       { $eq: ['$projectId', projectId] },
+                      { $in: ['$languageId', projectLanguageIds] },
                     ],
                   },
                 },
@@ -1070,8 +1103,6 @@ export class Service {
       keyIdsToExclude.push(...emptyKeys.map(({ id }) => id));
     }
 
-    const { languages: projectLanguages } = project;
-
     if (filterData[EFilter.hidePartiallyPopulated]) {
       const partiallyPopulatedKeys = await this.keyModel.aggregate([
         {
@@ -1094,6 +1125,7 @@ export class Service {
                       { $eq: ['$keyId', '$$keyId'] },
                       { $eq: ['$userId', userId] },
                       { $eq: ['$projectId', projectId] },
+                      { $in: ['$languageId', projectLanguageIds] },
                     ],
                   },
                 },
@@ -1156,6 +1188,7 @@ export class Service {
                       { $eq: ['$keyId', '$$keyId'] },
                       { $eq: ['$userId', userId] },
                       { $eq: ['$projectId', projectId] },
+                      { $in: ['$languageId', projectLanguageIds] },
                     ],
                   },
                 },
@@ -1268,6 +1301,7 @@ export class Service {
                     { $eq: ['$keyId', '$$keyId'] },
                     { $eq: ['$userId', userId] },
                     { $eq: ['$projectId', projectId] },
+                    { $in: ['$languageId', projectLanguageIds] },
                   ],
                 },
               },
@@ -1303,7 +1337,7 @@ export class Service {
 
     const aggregatedValues = searchParamsData[ESearchParams.skipValues]
       ? [[]]
-      : await this.getAggregatedValues(userId, projectId, aggregatedValuesParentIds);
+      : await this.getAggregatedValues(userId, projectId, aggregatedValuesParentIds, undefined, this.getProjectLanguageIds(project));
 
     return {
       ...project.toObject(),
@@ -1312,17 +1346,19 @@ export class Service {
       keysTotalCount,
       upstreamParents,
       subfolder: subfolderModel,
-    } as IProject;
+    } as IProjectData;
   }
 
   async getKeyData(projectId: string, userId: string, keyId: string) {
+    const project = await this.assertActiveProject(userId, projectId);
+
     const result = await this.keyModel.findOne({
       projectId,
       userId,
       id: keyId,
     });
 
-    const aggregatedValues = await this.getAggregatedValues(userId, projectId, null, [keyId]);
+    const aggregatedValues = await this.getAggregatedValues(userId, projectId, null, [keyId], this.getProjectLanguageIds(project));
 
     return {
       key: result,
@@ -1331,6 +1367,8 @@ export class Service {
   }
 
   async getEntityContent(projectId: string, userId: string, componentId: string) {
+    const project = await this.assertActiveProject(userId, projectId);
+
     const keys = await this.keyModel
       .find({
         projectId,
@@ -1339,7 +1377,7 @@ export class Service {
       })
       .sort({ type: 'asc', label: 'asc' });
 
-    const aggregatedValues = await this.getAggregatedValues(userId, projectId, [componentId]);
+    const aggregatedValues = await this.getAggregatedValues(userId, projectId, [componentId], undefined, this.getProjectLanguageIds(project));
 
     return {
       keys,
@@ -1348,6 +1386,8 @@ export class Service {
   }
 
   async getEntitiesChildrenByIds(projectId: string, userId: string, entityIds: string[]) {
+    await this.assertActiveProject(userId, projectId);
+
     const keys = await this.keyModel.find({
       projectId,
       userId,
@@ -1359,6 +1399,8 @@ export class Service {
 
   async addLanguage(addLanguageDto: AddLanguageDto, userId: string) {
     const { projectId, id, label, baseLanguage, code } = addLanguageDto;
+
+    await this.assertActiveProject(userId, projectId);
 
     const result = await this.projectModel.updateOne(
       this.getActiveProjectFilter(userId, projectId),
@@ -1378,7 +1420,7 @@ export class Service {
     return result;
   }
 
-  async updateLanguage(updateLanguageDto: UpdateLanguageDto, userId: string): Promise<IProject | Error> {
+  async updateLanguage(updateLanguageDto: UpdateLanguageDto, userId: string): Promise<IProject> {
     const { projectId, ...language } = updateLanguageDto;
 
     const result = await this.projectModel.findOneAndUpdate(
@@ -1394,7 +1436,7 @@ export class Service {
     return result;
   }
 
-  async addMultipleProjectLanguages(addMultipleLanguagesDto: AddMultipleLanguagesDto, userId: string): Promise<IProject | Error> {
+  async addMultipleProjectLanguages(addMultipleLanguagesDto: AddMultipleLanguagesDto, userId: string): Promise<IProject> {
     const { projectId, languages } = addMultipleLanguagesDto;
 
     const result = await this.projectModel
@@ -1408,9 +1450,16 @@ export class Service {
     return result;
   }
 
-  async deleteProjectLanguage(projectId: string, languageId: string, userId: string): Promise<IProject | Error> {
+  async deleteProjectLanguage(projectId: string, languageId: string, userId: string): Promise<IProject> {
     const result = await this.projectModel
-      .findOneAndUpdate(this.getActiveProjectFilter(userId, projectId), { $pull: { languages: { id: languageId } } }, { new: true })
+      .findOneAndUpdate(
+        {
+          ...this.getActiveProjectFilter(userId, projectId),
+          'languages.id': languageId,
+        },
+        { $pull: { languages: { id: languageId } } },
+        { new: true },
+      )
       .exec();
 
     if (!result) {
@@ -1421,6 +1470,8 @@ export class Service {
   }
 
   async setLanguageVisibility({ projectId, languageId, visible }: LanguageVisibilityDto, userId: string): Promise<IProject> {
+    await this.assertActiveProject(userId, projectId);
+
     const result = await this.projectModel.findOneAndUpdate(
       { ...this.getActiveProjectFilter(userId, projectId), 'languages.id': languageId },
       { $set: { 'languages.$.visible': visible } },
@@ -1431,6 +1482,8 @@ export class Service {
   }
 
   async setMultipleLanguagesVisibility({ projectId, data }: MultipleLanguageVisibilityDto, userId: string): Promise<IProject> {
+    await this.assertActiveProject(userId, projectId);
+
     const bulkOps = data.map(({ languageId, visible }) => {
       return {
         updateOne: {
@@ -1529,6 +1582,8 @@ export class Service {
   }
 
   async getMultipleEntitiesDataByParentId(projectId: string, parentId: string, userId: string): Promise<IKey[]> {
+    await this.assertActiveProject(userId, projectId);
+
     const result = await this.keyModel.find({ projectId, parentId, userId });
 
     return result;
@@ -1551,7 +1606,7 @@ export class Service {
     }
 
     const keys: IKey[] = await this.keyModel.find({ userId, projectId }).lean();
-    const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null)) || [];
+    const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null, this.getProjectLanguageIds(project))) || [];
 
     const structuredProjectData: IStructuredProjectData = {};
 
@@ -1568,7 +1623,7 @@ export class Service {
     return structuredProjectData;
   }
 
-  async exportProjectToJson(projectId: string, format_settings: any, userId: string, res): Promise<any> {
+  async exportProjectToJson(projectId: string, formatSettings: ExportFormatSettings, userId: string, res): Promise<void> {
     const project = await this.projectModel
       .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
@@ -1605,7 +1660,7 @@ export class Service {
       }
     }
 
-    return await archive.finalize();
+    await archive.finalize();
   }
 
   async getXmlReadyLinearDataFromProject(userId: string, project: IProject): Promise<any> {
@@ -1625,7 +1680,7 @@ export class Service {
     }
 
     const keys: IKey[] = await this.keyModel.find({ userId, projectId }).lean();
-    const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null)) || [];
+    const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null, this.getProjectLanguageIds(project))) || [];
 
     const structuredProjectData: IStructuredProjectData = {};
 
@@ -1660,7 +1715,7 @@ export class Service {
 
     const keys: IKey[] = await this.keyModel.find({ userId, projectId }).lean();
 
-    const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null)) || [];
+    const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null, this.getProjectLanguageIds(project))) || [];
 
     const structuredProjectData: IStructuredProjectData = {};
 
@@ -1677,11 +1732,7 @@ export class Service {
     return structuredProjectData;
   }
 
-  async exportProjectToAndroidXml(projectId: string, formatSettings: any, userId: string, res): Promise<IResponse> {
-    const response: IResponse = {
-      statusCode: EStatusCode.OK,
-    };
-
+  async exportProjectToAndroidXml(projectId: string, formatSettings: ExportFormatSettings, userId: string, res): Promise<void> {
     const project = await this.projectModel
       .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
@@ -1737,14 +1788,10 @@ export class Service {
       }
     }
 
-    return await archive.finalize();
+    await archive.finalize();
   }
 
-  async exportProjectToAppleStrings(projectId: string, formatSettings: any, userId: string, res): Promise<IResponse> {
-    const response: IResponse = {
-      statusCode: EStatusCode.OK,
-    };
-
+  async exportProjectToAppleStrings(projectId: string, formatSettings: ExportFormatSettings, userId: string, res): Promise<void> {
     const project = await this.projectModel
       .findOne(this.getActiveProjectFilter(userId, projectId))
       .exec();
@@ -1777,21 +1824,21 @@ export class Service {
         };
       };
 
-      const result = localesData.map(({ key, value }: any) => `"${key}" = "${value}";`);
+      const result = localesData.map(({ key, value }) => `"${key}" = "${value}";`);
 
       archive.append(result.join('\n'), { name: `${containerName}.strings` });
 
       for (const [componentName, componentData] of Object.entries(componentsData)) {
-        const txtComponentsString = componentData.map(({ key, value }: any) => `"${key}" = "${value}";`).join('\n');
+        const txtComponentsString = componentData.map(({ key, value }) => `"${key}" = "${value}";`).join('\n');
 
         archive.append(txtComponentsString, { name: `${containerName}/${componentName}.strings` });
       }
     }
 
-    return await archive.finalize();
+    await archive.finalize();
   }
 
-  async addMultipleRawLanguages(data: any) {
+  async addMultipleRawLanguages(data: AddRawLanguagesDto): Promise<IRawLanguage[]> {
     return await this.rawLanguageModel.insertMany(data);
   }
 
@@ -1802,14 +1849,14 @@ export class Service {
   }
 
   collectDocuments(
-    data: any,
+    data: Record<string, unknown>,
     parentId: string | null = null,
-    results: any[] = [],
+    results: IImportedDocument[] = [],
     pathCache = '#',
     namePathCache = '#',
-  ): any[] {
+  ): IImportedDocument[] {
     for (const [label, value] of Object.entries(data)) {
-      const document = {
+      const document: IImportedDocument = {
         label,
         value: typeof value === 'string' ? value : null,
         type: typeof value === 'string' ? 'string' : 'folder',
@@ -1824,25 +1871,49 @@ export class Service {
       results.push(document);
 
       if (typeof value === 'object' && value !== null) {
-        this.collectDocuments(value, tempId, results, `${pathCache}/${tempId}`, `${namePathCache}/${label}`);
+        this.collectDocuments(value as Record<string, unknown>, tempId, results, `${pathCache}/${tempId}`, `${namePathCache}/${label}`);
       }
     }
 
     return results;
   }
 
-  async importDataToProject(data: any, userId: string) {
+  async importDataToProject(data: IImportRequest, userId: string): Promise<IImportResult> {
     const { projectId, files, metaData } = data;
 
-    const filesMetaData = JSON.parse(metaData);
+    const project = await this.projectModel
+      .findOne(this.getActiveProjectFilter(userId, projectId))
+      .exec();
 
-    const filesMetaDataMap = {};
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
 
-    filesMetaData.forEach((dataItem) => {
+    let filesMetaData: JsonImportFileMetaDataItem[];
+
+    try {
+      filesMetaData = JSON.parse(metaData) as JsonImportFileMetaDataItem[];
+    } catch {
+      throw new BadRequestException({
+        error: 'Import Failed',
+        message: 'Import metadata is invalid',
+      });
+    }
+
+    if (!files?.length || filesMetaData.length !== files.length) {
+      throw new BadRequestException({
+        error: 'Import Failed',
+        message: 'Files and metadata do not match',
+      });
+    }
+
+    const filesMetaDataMap: JsonImportFileMetaDataMap = {};
+
+    filesMetaData.forEach((dataItem: JsonImportFileMetaDataItem) => {
       filesMetaDataMap[dataItem.name] = dataItem;
     });
 
-    const langCodes = [];
+    const langCodes: string[] = [];
 
     for (let i = 0; i < filesMetaData.length; i += 1) {
       const { name, code } = filesMetaData[i];
@@ -1852,21 +1923,46 @@ export class Service {
       langCodes.push(code);
     }
 
-    const languages = await this.rawLanguageModel.find({ code: langCodes });
+    const languages = await this.rawLanguageModel.find({ code: { $in: langCodes } });
 
-    const languagesMap = {};
+    const languagesMap: Record<string, IRawLanguage> = {};
 
     for (let i = 0; i < languages.length; i += 1) {
       languagesMap[languages[i].code] = languages[i];
     }
 
-    const documentsToCreate = {};
+    const missingLanguageCode = langCodes.find((code) => !languagesMap[code]);
+
+    if (missingLanguageCode) {
+      throw new BadRequestException({
+        error: 'Import Failed',
+        message: `Language ${missingLanguageCode} is not supported`,
+      });
+    }
+
+    const documentsToCreate: Record<string, IImportedDocument> = {};
 
     for (let j = 0; j < files.length; j += 1) {
       const { originalname, buffer } = files[j];
       const fileContent = buffer.toString('utf-8');
 
-      const fileContentData = JSON.parse(fileContent);
+      let fileContentData: Record<string, unknown>;
+
+      try {
+        fileContentData = JSON.parse(fileContent);
+      } catch {
+        throw new BadRequestException({
+          error: 'Import Failed',
+          message: `File ${originalname} contains invalid JSON`,
+        });
+      }
+
+      if (!filesMetaDataMap[originalname]) {
+        throw new BadRequestException({
+          error: 'Import Failed',
+          message: `Metadata for file ${originalname} is missing`,
+        });
+      }
 
       const { code: languageCode } = filesMetaDataMap[originalname];
 
@@ -1907,11 +2003,11 @@ export class Service {
       });
     }
 
-    const valuesToCreate = [];
+    const valuesToCreate: Partial<IKeyValue>[] = [];
 
     const arrayOfDocumentsToCreate = Object.values(documentsToCreate);
 
-    arrayOfDocumentsToCreate.forEach((document: any) => {
+    arrayOfDocumentsToCreate.forEach((document) => {
       const { id, type, parentId, values, pathCache } = document;
 
       if (type === 'string') {
@@ -1930,17 +2026,9 @@ export class Service {
       }
     });
 
-    const project = await this.projectModel
-      .findOne(this.getActiveProjectFilter(userId, projectId))
-      .exec();
-
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
-
     const { languages: projectLanguages } = project;
 
-    const projectLanguagesIdsMap = {};
+    const projectLanguagesIdsMap: Record<string, boolean> = {};
 
     for (let k = 0; k < projectLanguages.length; k += 1) {
       const { id } = projectLanguages[k] as IProjectLanguage;
@@ -1980,7 +2068,7 @@ export class Service {
     };
   }
 
-  async importComponentsDataToProject(data: any, userId: string): Promise<IResponse> {
+  async importComponentsDataToProject(data: IImportComponentsRequest, userId: string): Promise<IImportResult> {
     const { projectId, files, metaData } = data;
 
     const project = await this.projectModel
@@ -1991,12 +2079,19 @@ export class Service {
       throw new NotFoundException('Project not found');
     }
 
+    if (!files?.length || metaData.length !== files.length) {
+      throw new BadRequestException({
+        error: 'Import Failed',
+        message: 'Files and metadata do not match',
+      });
+    }
+
     const { languages: projectLanguages } = project;
 
     const projectLanguagesLanguagesSet = new Set(projectLanguages.map(({ id }: ILanguage) => id));
-    const languageIdsToAdd = new Set();
+    const languageIdsToAdd = new Set<string>();
 
-    const componentsToCreate = new Set();
+    const componentsToCreate = new Set<string>();
 
     metaData.forEach((dataItem) => {
       const { name, languageId } = dataItem;
@@ -2008,24 +2103,42 @@ export class Service {
       componentsToCreate.add(name);
     });
 
-    const languagesToAdd = await this.rawLanguageModel.find({ id: [...languageIdsToAdd] });
+    const languagesToAdd = await this.rawLanguageModel.find({ id: { $in: [...languageIdsToAdd] } });
+    const languagesToAddMap = new Map(languagesToAdd.map((language) => [language.id, language]));
+    const missingLanguageId = [...languageIdsToAdd].find((languageId) => !languagesToAddMap.has(languageId));
 
-    let addProjectLanguagesResult = null;
+    if (missingLanguageId) {
+      throw new BadRequestException({
+        error: 'Import Failed',
+        message: `Language ${missingLanguageId} is not supported`,
+      });
+    }
 
-    const documentsToCreate = {};
+    let addProjectLanguagesResult: unknown | null = null;
+
+    const documentsToCreate: Record<string, IImportedDocument> = {};
 
     for (let i = 0; i < files.length; i += 1) {
       const { buffer } = files[i];
       const fileMetaData = metaData[i];
 
       const fileContent = buffer.toString('utf-8');
-      const fileContentData = JSON.parse(fileContent);
+      let fileContentData: Record<string, unknown>;
+
+      try {
+        fileContentData = JSON.parse(fileContent);
+      } catch {
+        throw new BadRequestException({
+          error: 'Import Failed',
+          message: `File ${fileMetaData?.name || i + 1} contains invalid JSON`,
+        });
+      }
 
       const { name: fileName, code: languageCode, languageId } = fileMetaData;
 
       const componentToCreateId = Math.random().toString(16).substring(2);
 
-      const componentToCreateData = {
+      const componentToCreateData: IImportedDocument = {
         label: fileName,
         parentId: projectId,
         projectId,
@@ -2082,11 +2195,11 @@ export class Service {
       });
     }
 
-    const valuesToCreate = [];
+    const valuesToCreate: Partial<IKeyValue>[] = [];
 
     const arrayOfDocumentsToCreate = Object.values(documentsToCreate);
 
-    arrayOfDocumentsToCreate.forEach((document: any) => {
+    arrayOfDocumentsToCreate.forEach((document) => {
       const { id, type, parentId, values, pathCache } = document;
 
       if (type === 'string') {
@@ -2124,12 +2237,9 @@ export class Service {
     const createValuesResult = await this.keyValueModel.insertMany(valuesToCreate);
 
     return {
-      statusCode: EStatusCode.OK,
-      metaData: {
-        addProjectLanguagesResult,
-        createDocumentsResult,
-        createValuesResult,
-      },
+      addProjectLanguagesResult,
+      createDocumentsResult,
+      createValuesResult,
     };
   }
 }

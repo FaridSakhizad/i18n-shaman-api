@@ -5,3 +5,6 @@ export const RawLanguageSchema = new mongoose.Schema({
   label: String,
   code: String,
 });
+
+RawLanguageSchema.index({ id: 1 });
+RawLanguageSchema.index({ code: 1 });

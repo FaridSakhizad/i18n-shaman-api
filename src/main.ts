@@ -6,21 +6,25 @@ const MongoStore = require('connect-mongo');
 
 import { AppModule } from './app.module';
 import { ProblemDetailsExceptionFilter } from './common/problem-details-exception.filter';
+import {
+  getFrontendUrl,
+  getMongoDbName,
+  getMongoUrl,
+  getPort,
+  getSessionSecret,
+  isProduction,
+} from './config/env';
 
 declare const module: any;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalFilters(new ProblemDetailsExceptionFilter());
-  const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTENT_URL;
-  const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:27017';
-  const mongoDbName = process.env.MONGO_DB_NAME || 'i18nShaman';
-  const isProduction = process.env.NODE_ENV === 'production';
-  const sessionSecret = process.env.SECRET || (isProduction ? null : 'development-session-secret');
-
-  if (!sessionSecret) {
-    throw new Error('SECRET environment variable is required in production.');
-  }
+  const production = isProduction();
+  const frontendUrl = getFrontendUrl();
+  const mongoUrl = getMongoUrl();
+  const mongoDbName = getMongoDbName();
+  const sessionSecret = getSessionSecret();
 
   app.enableCors({
     origin: frontendUrl,
@@ -46,13 +50,13 @@ async function bootstrap() {
       cookie: {
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24 * 14,
-        sameSite: isProduction ? 'none' : 'lax',
-        secure: isProduction,
+        sameSite: production ? 'none' : 'lax',
+        secure: production,
       },
     }),
   );
 
-  await app.listen(process.env.PORT);
+  await app.listen(getPort());
 
   if (module.hot) {
     module.hot.accept();
