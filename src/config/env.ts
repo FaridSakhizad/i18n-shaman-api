@@ -1,6 +1,7 @@
 const DEFAULT_DEV_FRONTEND_URL = 'http://localhost:3000';
 const DEFAULT_DEV_MONGO_URL = 'mongodb://localhost:27017';
-const DEFAULT_MONGO_DB_NAME = 'i18nshaman';
+const DEFAULT_MONGO_DB_NAME = 'i18nShaman';
+const DEFAULT_MONGO_AUTH_SOURCE = 'admin';
 const DEFAULT_DEV_PORT = 4000;
 const DEFAULT_SMTP_FROM = '"i18n Shaman" <no-reply@i18nshaman.io>';
 
@@ -38,12 +39,48 @@ export function getSessionSecret(): string {
   return requireInProduction('SECRET', 'development-session-secret') as string;
 }
 
-export function getMongoUrl(): string {
-  return requireInProduction('MONGO_URL', DEFAULT_DEV_MONGO_URL) as string;
-}
-
 export function getMongoDbName(): string {
   return requireInProduction('MONGO_DB_NAME', DEFAULT_MONGO_DB_NAME) as string;
+}
+
+function getMongoCredentials(): { user: string; password: string; authSource: string } | null {
+  const user = process.env.MONGO_DB_USER;
+  const password = process.env.MONGO_DB_PASSWORD;
+
+  if (!user && !password) {
+    return null;
+  }
+
+  if (!user || !password) {
+    throw new Error('MONGO_DB_USER and MONGO_DB_PASSWORD must be provided together.');
+  }
+
+  return {
+    user,
+    password,
+    authSource: process.env.MONGO_AUTH_SOURCE || DEFAULT_MONGO_AUTH_SOURCE,
+  };
+}
+
+function applyMongoCredentials(mongoUrl: string): string {
+  const credentials = getMongoCredentials();
+
+  if (!credentials) {
+    return mongoUrl;
+  }
+
+  const url = new URL(mongoUrl);
+
+  if (!url.username && !url.password) {
+    url.username = credentials.user;
+    url.password = credentials.password;
+  }
+
+  if (!url.searchParams.has('authSource')) {
+    url.searchParams.set('authSource', credentials.authSource);
+  }
+
+  return url.toString();
 }
 
 export function getMongoConnectionUrl(): string {
@@ -51,7 +88,19 @@ export function getMongoConnectionUrl(): string {
     return process.env.MONGO_CONNECTION_URL;
   }
 
-  return `${getMongoUrl().replace(/\/$/, '')}/${getMongoDbName()}`;
+  const url = new URL(getMongoUrl());
+
+  if (!url.pathname || url.pathname === '/') {
+    url.pathname = `/${getMongoDbName()}`;
+  }
+
+  return url.toString();
+}
+
+export function getMongoUrl(): string {
+  const mongoUrl = requireInProduction('MONGO_URL', DEFAULT_DEV_MONGO_URL) as string;
+
+  return applyMongoCredentials(mongoUrl);
 }
 
 export function getSmtpConfig() {

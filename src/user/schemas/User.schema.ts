@@ -5,7 +5,16 @@ export const UserSettingsSchema = new mongoose.Schema({
 });
 
 export const UserPreferencesSchema = new mongoose.Schema({
-  projectsOrder: [String],
+  projectsOrder: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: (projectsOrder: unknown[]) => projectsOrder.every((projectId) => (
+        typeof projectId === 'string' && projectId.length > 0
+      )),
+      message: 'projectsOrder must contain only non-empty strings.',
+    },
+  },
 });
 
 export const UserSchema = new mongoose.Schema({

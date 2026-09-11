@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Model } from 'mongoose';
-import { IUser, IUserPreferences } from './interfaces/user.interface';
+import { IUser } from './interfaces/user.interface';
+import { normalizeUserPreferences } from './preferences';
 
 @Injectable()
 export class UserService {
@@ -17,17 +18,21 @@ export class UserService {
           language: language,
         },
       },
+      { runValidators: true },
     );
 
     return 'OK';
   }
 
-  async savePreferences(userId: string, data: IUserPreferences) {
+  async savePreferences(userId: string, data: unknown) {
+    const preferences = normalizeUserPreferences(data);
+
     const result = await this.userModel.updateOne(
       { _id: userId },
       {
-        preferences: data,
+        preferences,
       },
+      { runValidators: true },
     );
 
     return 'OK';

@@ -9,6 +9,7 @@ import { IToken } from './interfaces/token.interface';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { TokenService } from './token.service';
+import { normalizeUserPreferences } from '../user/preferences';
 
 @Injectable()
 export class AuthService {
@@ -172,7 +173,7 @@ export class AuthService {
     return {
       id: _id.toString(),
       email,
-      preferences,
+      preferences: normalizeUserPreferences(preferences),
     } as IPublicUserData;
   }
 
