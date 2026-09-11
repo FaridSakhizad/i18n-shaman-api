@@ -3,6 +3,7 @@ import { EmailTemplateService } from './template.service';
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { getFrontendUrl, getSmtpConfig } from '../config/env';
+import { withOperationLog } from '../common/logger';
 
 @Injectable()
 export class MailService {
@@ -33,7 +34,11 @@ export class MailService {
       html,
     };
 
-    return this.transporter.sendMail(mailOptions);
+    return withOperationLog('email_send', {
+      context: 'MailService',
+      emailType: 'password_reset',
+      recipientDomain: this.getRecipientDomain(to),
+    }, () => this.transporter.sendMail(mailOptions));
   }
 
   async sendEmailVerification(to: string, verificationLinkToken: string) {
@@ -53,6 +58,14 @@ export class MailService {
       html,
     };
 
-    return this.transporter.sendMail(mailOptions);
+    return withOperationLog('email_send', {
+      context: 'MailService',
+      emailType: 'email_verification',
+      recipientDomain: this.getRecipientDomain(to),
+    }, () => this.transporter.sendMail(mailOptions));
+  }
+
+  private getRecipientDomain(email: string): string {
+    return email.split('@')[1] || 'unknown';
   }
 }

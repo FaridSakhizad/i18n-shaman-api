@@ -51,6 +51,7 @@ import {
   ITagListResponse,
   UpdateProjectDto,
 } from './dto/project-api.dto';
+import { withOperationLog } from '../common/logger';
 
 @Controller()
 export class TransController {
@@ -109,7 +110,16 @@ export class TransController {
     @Req() req,
     @CurrentUserId() userId: string,
   ): Promise<ApiResponse<IProjectData>> {
-    const result = await this.Service.getUserProjectById({
+    const result = await withOperationLog('project_load', {
+      context: 'TransController',
+      projectId,
+      userId,
+      page: parseInt(page, 10),
+      itemsPerPage: parseInt(itemsPerPage, 10),
+      hasSearchQuery: Boolean(searchQuery),
+      filtersCount: filters ? filters.split(',').filter(Boolean).length : 0,
+      tagsCount: tags ? tags.split(',').filter(Boolean).length : 0,
+    }, () => this.Service.getUserProjectById({
       projectId,
       page: parseInt(page, 10),
       itemsPerPage: parseInt(itemsPerPage, 10),
@@ -120,7 +130,7 @@ export class TransController {
       tags: tags ? tags.split(',') : [],
       searchQuery,
       searchParams: searchQuery && searchParams ? searchParams.split(',') : [],
-    } as GetProjectByIdDto, userId);
+    } as GetProjectByIdDto, userId));
 
     return createApiResponse(req, result);
   }
@@ -357,17 +367,32 @@ export class TransController {
     } = exportProjectQueryDto;
 
     if (format === EExportFormats.json) {
-      await this.Service.exportProjectToJson(projectId, formatSettings, userId, res);
+      await withOperationLog('export', {
+        context: 'TransController',
+        projectId,
+        userId,
+        format,
+      }, () => this.Service.exportProjectToJson(projectId, formatSettings, userId, res));
       return;
     }
 
     if (format === EExportFormats.androidXml) {
-      await this.Service.exportProjectToAndroidXml(projectId, formatSettings, userId, res);
+      await withOperationLog('export', {
+        context: 'TransController',
+        projectId,
+        userId,
+        format,
+      }, () => this.Service.exportProjectToAndroidXml(projectId, formatSettings, userId, res));
       return;
     }
 
     if (format === EExportFormats.appleStrings) {
-      await this.Service.exportProjectToAppleStrings(projectId, formatSettings, userId, res);
+      await withOperationLog('export', {
+        context: 'TransController',
+        projectId,
+        userId,
+        format,
+      }, () => this.Service.exportProjectToAppleStrings(projectId, formatSettings, userId, res));
       return;
     }
 
@@ -387,7 +412,12 @@ export class TransController {
     @CurrentUserId() userId: string,
     @UploadedFiles() files: Express.Multer.File[],
   ): Promise<ApiResponse<IImportResult>> {
-    const result = await this.Service.importDataToProject({ projectId, files, metaData }, userId);
+    const result = await withOperationLog('import_json', {
+      context: 'TransController',
+      projectId,
+      userId,
+      fileCount: files?.length || 0,
+    }, () => this.Service.importDataToProject({ projectId, files, metaData }, userId));
 
     return createApiResponse(req, result);
   }
@@ -415,11 +445,17 @@ export class TransController {
       });
     }
 
-    const result = await this.Service.importComponentsDataToProject({
+    const result = await withOperationLog('import_components', {
+      context: 'TransController',
+      projectId,
+      userId,
+      fileCount: files?.length || 0,
+      metadataCount: metaDataParsed.length,
+    }, () => this.Service.importComponentsDataToProject({
       projectId,
       files,
       metaData: metaDataParsed,
-    }, userId);
+    }, userId));
 
     return createApiResponse(req, result);
   }

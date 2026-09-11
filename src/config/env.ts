@@ -4,6 +4,7 @@ const DEFAULT_MONGO_DB_NAME = 'i18nShaman';
 const DEFAULT_MONGO_AUTH_SOURCE = 'admin';
 const DEFAULT_DEV_PORT = 4000;
 const DEFAULT_SMTP_FROM = '"i18n Shaman" <no-reply@i18nshaman.io>';
+const DEFAULT_LOG_LEVEL = 'info';
 
 export function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -29,6 +30,10 @@ function requireInProduction(name: string, devFallback?: string): string | undef
 
 export function getPort(): number {
   return Number(process.env.PORT || DEFAULT_DEV_PORT);
+}
+
+export function getLogLevel(): string {
+  return process.env.LOG_LEVEL || DEFAULT_LOG_LEVEL;
 }
 
 export function getFrontendUrl(): string {

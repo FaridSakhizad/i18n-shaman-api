@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ProblemDetails } from '../interfaces';
+import { getLogger } from './logger';
 
 type ExceptionResponse = string | {
   message?: string | string[];
@@ -45,7 +46,31 @@ export class ProblemDetailsExceptionFilter implements ExceptionFilter {
       instance: request.url,
     };
 
+    this.logException(exception, request, status, problemDetails.requestId);
+
     response.status(status).json(problemDetails);
+  }
+
+  private logException(exception: unknown, request: Request, status: number, requestId?: string): void {
+    const logger = getLogger({
+      context: 'ProblemDetailsExceptionFilter',
+      requestId,
+      method: request.method,
+      url: request.originalUrl || request.url,
+      statusCode: status,
+    });
+
+    const logData = {
+      event: status >= 500 ? 'request_failed' : 'request_rejected',
+      err: exception,
+    };
+
+    if (status >= 500) {
+      logger.error(logData, 'request failed');
+      return;
+    }
+
+    logger.debug(logData, 'request rejected');
   }
 
   private getTitle(exceptionResponse: ExceptionResponse | null, status: number): string {

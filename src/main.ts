@@ -5,6 +5,8 @@ import MongoStore from 'connect-mongo';
 
 import { AppModule } from './app.module';
 import { ProblemDetailsExceptionFilter } from './common/problem-details-exception.filter';
+import { appLogger } from './common/logger';
+import { requestLoggingMiddleware } from './common/request-logging.middleware';
 import {
   getFrontendUrl,
   getMongoDbName,
@@ -17,7 +19,9 @@ import {
 declare const module: any;
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: false,
+  });
   app.useGlobalFilters(new ProblemDetailsExceptionFilter());
   const production = isProduction();
   const frontendUrl = getFrontendUrl();
@@ -55,7 +59,19 @@ async function bootstrap() {
     }),
   );
 
+  app.use(requestLoggingMiddleware);
+
   await app.listen(getPort());
+
+  appLogger.info(
+    {
+      event: 'api_started',
+      port: getPort(),
+      frontendUrl,
+      production,
+    },
+    'api started',
+  );
 
   if (module.hot) {
     module.hot.accept();
