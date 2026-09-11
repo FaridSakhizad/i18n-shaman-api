@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as Handlebars from 'handlebars';
-import * as mjml2html from 'mjml';
+import mjml2html from 'mjml';
 
 type Ctx = Record<string, unknown>;
 
