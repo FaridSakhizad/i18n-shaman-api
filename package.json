@@ -27,6 +27,7 @@
     "bcrypt": "^6.0.0",
     "connect-mongo": "^6.0.0",
     "cookie-parser": "^1.4.7",
+    "cssnano": "^8.0.10",
     "dotenv": "^17.2.1",
     "express-session": "^1.19.0",
     "handlebars": "^4.7.9",
