@@ -10,9 +10,6 @@ interface IComponentStructure {
 
 @Injectable()
 export class KeyHelperService {
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  constructor() {}
-
   buildHierarchy(data, rootId) {
     const map = new Map();
 

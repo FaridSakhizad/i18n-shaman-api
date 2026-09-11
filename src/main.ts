@@ -1,8 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import * as session from 'express-session';
-import * as cookieParser from 'cookie-parser';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const MongoStore = require('connect-mongo');
+import session from 'express-session';
+import cookieParser from 'cookie-parser';
+import MongoStore from 'connect-mongo';
 
 import { AppModule } from './app.module';
 import { ProblemDetailsExceptionFilter } from './common/problem-details-exception.filter';

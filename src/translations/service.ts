@@ -19,7 +19,7 @@ import {
   IStructuredProjectData, ITag,
 } from './interfaces/project.interface';
 
-import { IKey, IKeyTag } from './interfaces/key.interface';
+import { IKey } from './interfaces/key.interface';
 
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddLanguageDto } from './dto/add-language.dto';
@@ -33,7 +33,6 @@ import { IRawLanguage } from './interfaces/rawLanguage.interface';
 import { IKeyValue } from './interfaces/keyValue.interface';
 import { KeyHelperService } from './keyHelper.service';
 import { GetProjectByIdDto } from './dto/get-project-by-id.dto';
-import { EditTagDto } from './dto/tags.dto';
 import {
   AddRawLanguagesDto,
   ExportFormatSettings,
@@ -535,7 +534,7 @@ export class Service {
         projectId,
         keyId: entityIds,
       })
-      .lean();
+      .lean<IKeyValue[]>();
 
     const clonedRootEntityValues = rootEntitiesValues.map((document) => {
       const { _id, keyId, pathCache, ...data } = document;
@@ -655,7 +654,7 @@ export class Service {
         projectId,
         id: destinationEntityId,
       })
-      .lean();
+      .lean<IKey>();
 
     const rootEntities = await this.keyModel
       .find({
@@ -663,7 +662,7 @@ export class Service {
         projectId,
         id: entityIds,
       })
-      .lean();
+      .lean<IKey[]>();
 
     const docIsMovingToRoot = projectId === destinationEntityId;
 
@@ -868,7 +867,7 @@ export class Service {
 
     const updatedAt = +new Date();
 
-    const result = await this.keyModel.updateOne(
+    await this.keyModel.updateOne(
       {
         id,
         projectId,
@@ -881,13 +880,11 @@ export class Service {
       },
     );
 
-    let key = await this.keyModel.findOne({ id, projectId, userId });
+    const key = await this.keyModel.findOne({ id, projectId, userId }).lean<IKey>();
 
     if (!key) {
       throw new NotFoundException('Entity not found');
     }
-
-    key = key.toObject();
 
     const bulkOps = values.map((item) => {
       const valuePatch = {
@@ -1346,7 +1343,7 @@ export class Service {
       keysTotalCount,
       upstreamParents,
       subfolder: subfolderModel,
-    } as IProjectData;
+    } as unknown as IProjectData;
   }
 
   async getKeyData(projectId: string, userId: string, keyId: string) {
@@ -1509,7 +1506,7 @@ export class Service {
         continue;
       }
 
-      values = Object.entries(values).map(([key, value]) => value) as IKeyValue[];
+      values = Object.entries(values).map(([, value]) => value) as IKeyValue[];
 
       for (let j = 0; j < values.length; j++) {
         const { languageId, value } = values[j];
@@ -1551,7 +1548,7 @@ export class Service {
         continue;
       }
 
-      values = Object.entries(values).map(([key, value]) => value) as IKeyValue[];
+      values = Object.entries(values).map(([, value]) => value) as IKeyValue[];
 
       for (let j = 0; j < values.length; j++) {
         const { languageId, value } = values[j];
@@ -1605,7 +1602,7 @@ export class Service {
       };
     }
 
-    const keys: IKey[] = await this.keyModel.find({ userId, projectId }).lean();
+    const keys = await this.keyModel.find({ userId, projectId }).lean<IKey[]>();
     const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null, this.getProjectLanguageIds(project))) || [];
 
     const structuredProjectData: IStructuredProjectData = {};
@@ -1679,7 +1676,7 @@ export class Service {
       };
     }
 
-    const keys: IKey[] = await this.keyModel.find({ userId, projectId }).lean();
+    const keys = await this.keyModel.find({ userId, projectId }).lean<IKey[]>();
     const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null, this.getProjectLanguageIds(project))) || [];
 
     const structuredProjectData: IStructuredProjectData = {};
@@ -1713,7 +1710,7 @@ export class Service {
       };
     }
 
-    const keys: IKey[] = await this.keyModel.find({ userId, projectId }).lean();
+    const keys = await this.keyModel.find({ userId, projectId }).lean<IKey[]>();
 
     const [aggregatedValues] = (await this.getAggregatedValues(userId, projectId, null, null, this.getProjectLanguageIds(project))) || [];
 

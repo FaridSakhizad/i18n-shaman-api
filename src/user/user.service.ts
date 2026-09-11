@@ -11,7 +11,7 @@ export class UserService {
   ) {}
 
   async setLanguage(userId: string, language: string) {
-    const result = await this.userModel.updateOne(
+    await this.userModel.updateOne(
       { _id: userId },
       {
         settings: {
@@ -27,7 +27,7 @@ export class UserService {
   async savePreferences(userId: string, data: unknown) {
     const preferences = normalizeUserPreferences(data);
 
-    const result = await this.userModel.updateOne(
+    await this.userModel.updateOne(
       { _id: userId },
       {
         preferences,

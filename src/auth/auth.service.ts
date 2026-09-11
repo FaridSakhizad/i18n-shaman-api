@@ -48,7 +48,7 @@ export class AuthService {
     const newUserDocument = await newUser.save();
 
     return {
-      id: newUserDocument._id as string,
+      id: newUserDocument._id.toString(),
       email: newUserDocument.email,
     } as IPublicUserData;
   }
@@ -148,13 +148,13 @@ export class AuthService {
     session.userLoggedIn = true;
 
     return {
-      id: user._id as string,
+      id: user._id.toString(),
       email: user.email,
     } as IPublicUserData;
   }
 
   async logoutUser(userId: string) {
-    const deleteResult = await this.sessionModel.deleteMany({
+    await this.sessionModel.deleteMany({
       'session.userId': new Types.ObjectId(userId),
     });
 
@@ -194,7 +194,7 @@ export class AuthService {
     });
 
     const resetTokenDocument = await this.tokenService.createToken({
-      userId: user._id as string,
+      userId: user._id.toString(),
       type: 'password_reset',
       expiresInMinutes: 60,
     });
@@ -202,7 +202,7 @@ export class AuthService {
     await this.mailService.sendResetPasswordEmail(email, resetTokenDocument.token);
 
     return {
-      userId: user._id as string,
+      userId: user._id.toString(),
       resetToken: resetTokenDocument.token,
     };
   }
