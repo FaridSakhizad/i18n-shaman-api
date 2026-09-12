@@ -60,7 +60,7 @@ export class EmailTemplateService {
 
     const layoutHtml = layoutCompiler({ ...fullCtx, body });
 
-    const { html, errors } = (mjml2html as any)(layoutHtml, {
+    const { html, errors } = await mjml2html(layoutHtml, {
       minify: true,
       filePath: this.baseDir,
     });
