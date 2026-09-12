@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pino, { Logger } from 'pino';
-import { getLogLevel } from '../config/env';
+import { getApiConfig } from '../config/env';
 
 export type LogContext = {
   requestId?: string;
@@ -10,15 +10,16 @@ export type LogContext = {
 };
 
 const storage = new AsyncLocalStorage<LogContext>();
+const config = getApiConfig();
 
 export const appLogger = pino({
   name: 'i18nshaman-api',
-  level: getLogLevel(),
+  level: config.LOG_LEVEL,
   timestamp: pino.stdTimeFunctions.isoTime,
   messageKey: 'message',
   base: {
     service: 'i18nshaman-api',
-    environment: process.env.NODE_ENV || 'development',
+    environment: config.NODE_ENV,
   },
   redact: {
     censor: '[REDACTED]',

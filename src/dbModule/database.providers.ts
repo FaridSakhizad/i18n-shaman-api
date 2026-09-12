@@ -1,10 +1,10 @@
 import * as mongoose from 'mongoose';
-import { getMongoConnectionUrl } from '../config/env';
+import { getApiConfig } from '../config/env';
 
 export const databaseProviders = [
   {
     provide: 'DATABASE_CONNECTION',
     useFactory: (): Promise<typeof mongoose> =>
-      mongoose.connect(getMongoConnectionUrl()),
+      mongoose.connect(getApiConfig().MONGO_URI),
   },
 ];

@@ -1,3 +1,5 @@
+import './config/load-env';
+
 import { NestFactory } from '@nestjs/core';
 import session from 'express-session';
 import cookieParser from 'cookie-parser';
@@ -7,30 +9,20 @@ import { AppModule } from './app.module';
 import { ProblemDetailsExceptionFilter } from './common/problem-details-exception.filter';
 import { appLogger } from './common/logger';
 import { requestLoggingMiddleware } from './common/request-logging.middleware';
-import {
-  getFrontendUrl,
-  getMongoDbName,
-  getMongoUrl,
-  getPort,
-  getSessionSecret,
-  isProduction,
-} from './config/env';
+import { getApiConfig } from './config/env';
 
 declare const module: any;
 
 async function bootstrap() {
+  const config = getApiConfig();
+
   const app = await NestFactory.create(AppModule, {
-    logger: false,
+    logger: ['error', 'warn'],
   });
   app.useGlobalFilters(new ProblemDetailsExceptionFilter());
-  const production = isProduction();
-  const frontendUrl = getFrontendUrl();
-  const mongoUrl = getMongoUrl();
-  const mongoDbName = getMongoDbName();
-  const sessionSecret = getSessionSecret();
 
   app.enableCors({
-    origin: frontendUrl,
+    origin: config.FRONTEND_URL,
     credentials: true,
   });
 
@@ -39,36 +31,36 @@ async function bootstrap() {
   app.use(
     session({
       store: MongoStore.create({
-        mongoUrl,
-        dbName: mongoDbName,
+        mongoUrl: config.MONGO_URI,
+        dbName: config.MONGO_DB_NAME,
         collectionName: 'sessions',
         ttl: 14 * 24 * 60 * 60,
         stringify: false,
         serialize: (session) => session,
         unserialize: (session) => session,
       }),
-      secret: sessionSecret,
+      secret: config.SECRET,
       resave: false,
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24 * 14,
-        sameSite: production ? 'none' : 'lax',
-        secure: production,
+        sameSite: config.IS_PRODUCTION ? 'none' : 'lax',
+        secure: config.IS_PRODUCTION,
       },
     }),
   );
 
   app.use(requestLoggingMiddleware);
 
-  await app.listen(getPort());
+  await app.listen(config.PORT);
 
   appLogger.info(
     {
       event: 'api_started',
-      port: getPort(),
-      frontendUrl,
-      production,
+      port: config.PORT,
+      frontendUrl: config.FRONTEND_URL,
+      production: config.IS_PRODUCTION,
     },
     'api started',
   );
@@ -79,4 +71,7 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  appLogger.fatal({ event: 'api_start_failed', err: error }, 'api failed to start');
+  process.exit(1);
+});
