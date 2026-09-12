@@ -28,6 +28,19 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-namespace': 'off',
       'no-fallthrough': 'off',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='process'][property.name='env']",
+          message: 'Use getApiConfig() from src/config/env.ts instead of reading process.env directly.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/config/env.ts'],
+    rules: {
+      'no-restricted-syntax': 'off',
     },
   },
 );

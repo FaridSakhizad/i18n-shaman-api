@@ -1,5 +1,3 @@
-import './config/load-env';
-
 import { NestFactory } from '@nestjs/core';
 import session from 'express-session';
 import cookieParser from 'cookie-parser';
