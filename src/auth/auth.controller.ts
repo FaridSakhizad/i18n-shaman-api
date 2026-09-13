@@ -161,6 +161,14 @@ export class AuthController {
     return createApiResponse(req, result);
   }
 
+  @Post('resendVerificationEmail')
+  @UseGuards(AuthGuard)
+  async resendVerificationEmail(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<IMessageResponse>> {
+    await this.authService.resendEmailVerification(userId);
+
+    return createApiResponse(req, { message: 'Verification Email Sent' });
+  }
+
   @Post('resetPasswordRequest')
   async resetPasswordRequest(@Req() req, @Body() { email }: ResetPasswordRequestDto): Promise<ApiResponse<IMessageResponse>> {
     const { session, sessionID } = req;

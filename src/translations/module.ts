@@ -6,10 +6,11 @@ import { Service } from './service';
 import { SearchService } from './search.service';
 import { KeyHelperService } from './keyHelper.service';
 import { Providers } from '../dbModule/providers';
+import { VerifiedEmailGuard } from '../auth/verified-email.guard';
 
 @Module({
   imports: [DatabaseModule],
   controllers: [TransController, SearchController],
-  providers: [Service, SearchService, KeyHelperService, ...Providers],
+  providers: [Service, SearchService, KeyHelperService, VerifiedEmailGuard, ...Providers],
 })
 export class TranslationsModule {}

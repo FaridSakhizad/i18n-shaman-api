@@ -1,5 +1,6 @@
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
+import { VerifiedEmailGuard } from '../auth/verified-email.guard';
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { SearchService } from './search.service';
 import { createApiResponse } from '../common/http-response';
@@ -12,7 +13,7 @@ export class SearchController {
   constructor(private readonly SearchService: SearchService) {}
 
   @Get('search')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, VerifiedEmailGuard)
   async getUserProjects(
     @Req() req,
     @Query('projectId') projectId: string,

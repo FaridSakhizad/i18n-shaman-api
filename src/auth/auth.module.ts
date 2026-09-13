@@ -7,10 +7,11 @@ import { EmailTemplateService } from '../email/template.service';
 import { ValidationService } from '../validation/validation.servise';
 import { DatabaseModule } from '../dbModule/database.module';
 import { Providers } from '../dbModule/providers';
+import { VerifiedEmailGuard } from './verified-email.guard';
 
 @Module({
   imports: [DatabaseModule],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, MailService, EmailTemplateService, ValidationService, ...Providers],
+  providers: [AuthService, TokenService, MailService, EmailTemplateService, ValidationService, VerifiedEmailGuard, ...Providers],
 })
 export class AuthModule {}

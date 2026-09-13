@@ -20,6 +20,7 @@ export interface IUser extends Document {
 export interface IPublicUserData {
   id: string;
   email: string;
+  verified: boolean;
   settings?: IUserSettings;
   preferences?: IUserPreferences;
 }

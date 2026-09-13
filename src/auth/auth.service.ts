@@ -50,6 +50,7 @@ export class AuthService {
     return {
       id: newUserDocument._id.toString(),
       email: newUserDocument.email,
+      verified: Boolean(newUserDocument.verified),
     } as IPublicUserData;
   }
 
@@ -66,6 +67,20 @@ export class AuthService {
     });
 
     await this.mailService.sendEmailVerification(email, verifyEmailTokenDocument.token);
+  }
+
+  async resendEmailVerification(userId: string): Promise<void> {
+    const user = await this.userModel.findOne({ _id: userId }).exec();
+
+    if (!user || user.deleted || user.active === false) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.verified) {
+      return;
+    }
+
+    await this.initEmailVerification(user.email, user._id.toString());
   }
 
   async createEmailVerificationSecurityToken(userId: string, verificationToken: string): Promise<string> {
@@ -140,16 +155,13 @@ export class AuthService {
       throw new UnauthorizedException('Login/Passwords combination is incorrect');
     }
 
-    if (!user.verified) {
-      throw new ForbiddenException('Email is not verified');
-    }
-
     session.userId = user._id;
     session.userLoggedIn = true;
 
     return {
       id: user._id.toString(),
       email: user.email,
+      verified: Boolean(user.verified),
     } as IPublicUserData;
   }
 
@@ -168,11 +180,12 @@ export class AuthService {
       throw new NotFoundException('User Not Found');
     }
 
-    const { _id, email, preferences } = user;
+    const { _id, email, preferences, verified } = user;
 
     return {
       id: _id.toString(),
       email,
+      verified: Boolean(verified),
       preferences: normalizeUserPreferences(preferences),
     } as IPublicUserData;
   }
