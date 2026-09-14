@@ -19,6 +19,8 @@ const ENV_SCHEMA = {
   SMTP_USER: { type: 'string' },
   SMTP_PASS: { type: 'string' },
   SMTP_FROM: { type: 'string' },
+  TRACKING_PROVIDER_URL: { type: 'string', optional: true },
+  TRACKING_PROVIDER_SECRET: { type: 'string', optional: true },
 } as const;
 
 type EnvKey = keyof typeof ENV_SCHEMA;
@@ -37,7 +39,7 @@ const readEnv = (): EnvValues => {
   for (const [key, config] of Object.entries(ENV_SCHEMA)) {
     const value = process.env[key];
 
-    if (!value) {
+    if (!value && !('optional' in config && config.optional)) {
       console.warn(`[config] ${key} is not set.`);
     }
 
