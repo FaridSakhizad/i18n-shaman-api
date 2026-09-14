@@ -24,6 +24,10 @@ async function bootstrap() {
     credentials: true,
   });
 
+  if (config.IS_PRODUCTION) {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
+
   app.use(cookieParser());
 
   app.use(
