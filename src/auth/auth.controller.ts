@@ -24,14 +24,15 @@ import {
   VerifyEmailDto,
 } from './dto/register.dto';
 import { IPublicUserData, IUpdatePassword } from './interfaces/user.interface';
-import { ApiResponse } from '../interfaces';
+import { ApiResponse } from '../common/api-response.interface';
 import { TokenService } from './token.service';
-import { ValidationService } from '../validation/validation.servise';
+import { ValidationService } from '../validation/validation.service';
 import { Model } from 'mongoose';
 import { IToken } from './interfaces/token.interface';
 import { AuthGuard } from './auth.guard';
 import { CurrentUserId } from './current-user-id.decorator';
 import { createApiResponse } from '../common/http-response';
+import { RateLimit, RateLimitGuard } from '../common/rate-limit.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -45,6 +46,8 @@ export class AuthController {
   ) {}
 
   @Post('login')
+  @RateLimit({ max: 10, windowMs: 60 * 1000, keyPrefix: 'auth:login' })
+  @UseGuards(RateLimitGuard)
   async login(@Body() loginDto: LoginDto, @Req() req): Promise<ApiResponse<IPublicUserData>> {
     const result = await this.authService.loginUser(loginDto, req.session);
 
@@ -60,6 +63,8 @@ export class AuthController {
   }
 
   @Post('register')
+  @RateLimit({ max: 5, windowMs: 60 * 1000, keyPrefix: 'auth:register' })
+  @UseGuards(RateLimitGuard)
   async register(@Req() req, @Body() registerDto: RegisterDto): Promise<ApiResponse<IPublicUserData>> {
     if (!registerDto.email || !registerDto.password) {
       throw new BadRequestException({
@@ -77,6 +82,8 @@ export class AuthController {
   }
 
   @Post('validateVerificationToken')
+  @RateLimit({ max: 20, windowMs: 60 * 1000, keyPrefix: 'auth:validate-verification-token' })
+  @UseGuards(RateLimitGuard)
   async validateVerificationToken(@Req() req, @Body() { verificationToken }: VerificationTokenDto): Promise<ApiResponse<ITokenResponse>> {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
 
@@ -97,6 +104,8 @@ export class AuthController {
   }
 
   @Post('getEmailVerificationSecurityToken')
+  @RateLimit({ max: 20, windowMs: 60 * 1000, keyPrefix: 'auth:email-verification-security-token' })
+  @UseGuards(RateLimitGuard)
   async getEmailVerificationSecurityToken(@Req() req, @Body() { verificationToken }: VerificationTokenDto): Promise<ApiResponse<ITokenResponse>> {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
 
@@ -116,6 +125,8 @@ export class AuthController {
   }
 
   @Post('verifyEmail')
+  @RateLimit({ max: 20, windowMs: 60 * 1000, keyPrefix: 'auth:verify-email' })
+  @UseGuards(RateLimitGuard)
   async verifyEmail(@Req() req, @Body() { verificationToken, verificationSecurityToken }: VerifyEmailDto): Promise<ApiResponse<IVerifyEmailResponse>> {
     const verificationTokenDocument = await this.tokenService.verifyToken(verificationToken, 'email_verification');
     const verificationSecurityTokenDocument = await this.tokenService.verifyToken(verificationSecurityToken, 'email_verification_security');
@@ -162,7 +173,8 @@ export class AuthController {
   }
 
   @Post('resendVerificationEmail')
-  @UseGuards(AuthGuard)
+  @RateLimit({ max: 3, windowMs: 10 * 60 * 1000, keyPrefix: 'auth:resend-verification-email' })
+  @UseGuards(AuthGuard, RateLimitGuard)
   async resendVerificationEmail(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<IMessageResponse>> {
     await this.authService.resendEmailVerification(userId);
 
@@ -170,6 +182,8 @@ export class AuthController {
   }
 
   @Post('resetPasswordRequest')
+  @RateLimit({ max: 3, windowMs: 10 * 60 * 1000, keyPrefix: 'auth:reset-password-request' })
+  @UseGuards(RateLimitGuard)
   async resetPasswordRequest(@Req() req, @Body() { email }: ResetPasswordRequestDto): Promise<ApiResponse<IMessageResponse>> {
     const { session, sessionID } = req;
 
@@ -188,11 +202,15 @@ export class AuthController {
   }
 
   @Get('getPasswordResetSecurityToken')
+  @RateLimit({ max: 20, windowMs: 60 * 1000, keyPrefix: 'auth:password-reset-security-token' })
+  @UseGuards(RateLimitGuard)
   async getPasswordResetSecurityToken(@Req() req): Promise<ApiResponse<ITokenResponse>> {
     return this.createPasswordResetSecurityTokenResponse(req, req.session.resetToken);
   }
 
   @Post('setNewPassword')
+  @RateLimit({ max: 10, windowMs: 60 * 1000, keyPrefix: 'auth:set-new-password' })
+  @UseGuards(RateLimitGuard)
   async setNewPassword(@Req() req, @Body() setNewPasswordDto: SetNewPasswordDto): Promise<ApiResponse<unknown>> {
     const { session } = req;
 
@@ -251,6 +269,8 @@ export class AuthController {
   }
 
   @Post('validateResetToken')
+  @RateLimit({ max: 20, windowMs: 60 * 1000, keyPrefix: 'auth:validate-reset-token' })
+  @UseGuards(RateLimitGuard)
   async validateResetToken(@Req() req, @Body() { resetToken }: ResetTokenDto): Promise<ApiResponse<ITokenResponse>> {
     const resetTokenDocument = await this.tokenService.verifyToken(resetToken, 'password_reset');
     const { session } = req;
@@ -277,6 +297,8 @@ export class AuthController {
   }
 
   @Post('getPasswordResetSecurityToken')
+  @RateLimit({ max: 20, windowMs: 60 * 1000, keyPrefix: 'auth:password-reset-security-token' })
+  @UseGuards(RateLimitGuard)
   async getPasswordResetSecurityTokenPost(
     @Req() req,
     @Body() { resetToken }: ResetTokenDto,
@@ -285,7 +307,8 @@ export class AuthController {
   }
 
   @Get('getUpdatePasswordSecurityToken')
-  @UseGuards(AuthGuard)
+  @RateLimit({ max: 10, windowMs: 60 * 1000, keyPrefix: 'auth:update-password-security-token' })
+  @UseGuards(AuthGuard, RateLimitGuard)
   async getUpdatePasswordSecurityToken(@Req() req, @CurrentUserId() userId: string): Promise<ApiResponse<ITokenResponse>> {
     const { session } = req;
 
@@ -349,7 +372,8 @@ export class AuthController {
   }
 
   @Post('updatePassword')
-  @UseGuards(AuthGuard)
+  @RateLimit({ max: 10, windowMs: 60 * 1000, keyPrefix: 'auth:update-password' })
+  @UseGuards(AuthGuard, RateLimitGuard)
   async updatePassword(
     @Req() req,
     @Body() { securityToken, password, newPassword, confirmPassword }: IUpdatePassword,

@@ -1,25 +1,43 @@
+import { IsArray, IsEnum, IsObject, IsOptional, IsString } from 'class-validator';
 import { EExportFormats, ILanguage, IProjectLanguage, ITag } from '../interfaces/project.interface';
 import { IKey } from '../interfaces/key.interface';
 import { IKeyValue } from '../interfaces/keyValue.interface';
 
 export class UpdateProjectDto {
+  @IsString()
   projectId: string;
+
+  @IsOptional()
+  @IsString()
   projectName?: string;
+
+  @IsOptional()
+  @IsArray()
   languages?: IProjectLanguage[];
 }
 
 export class DeleteProjectDto {
+  @IsString()
   projectId: string;
 }
 
 export class DeleteProjectLanguageDto {
+  @IsString()
   projectId: string;
+
+  @IsString()
   languageId: string;
 }
 
 export class ExportProjectQueryDto {
+  @IsString()
   projectId: string;
+
+  @IsEnum(EExportFormats)
   format: EExportFormats;
+
+  @IsOptional()
+  @IsObject()
   formatSettings?: Record<string, unknown>;
 }
 

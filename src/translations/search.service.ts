@@ -3,8 +3,9 @@ import { Model } from 'mongoose';
 import { IKey } from './interfaces/key.interface';
 import { IKeyValue } from './interfaces/keyValue.interface';
 import { ISearchParams } from './interfaces/searchParams.interface';
-import { Service } from './service';
-import { KeyHelperService } from './keyHelper.service';
+import { KeyTreeService } from './key-tree.service';
+import { ProjectAccessService } from './project-access.service';
+import { KeyValueService } from './key-value.service';
 
 @Injectable()
 export class SearchService {
@@ -13,8 +14,9 @@ export class SearchService {
     private keyModel: Model<IKey>,
     @Inject('KEY_VALUE_MODEL')
     private keyValueModel: Model<IKeyValue>,
-    private readonly Service: Service,
-    private readonly KeyHelperService: KeyHelperService,
+    private readonly projectAccessService: ProjectAccessService,
+    private readonly keyValueService: KeyValueService,
+    private readonly keyTreeService: KeyTreeService,
   ) {}
 
   async performSearch(params: ISearchParams) {
@@ -30,8 +32,8 @@ export class SearchService {
       inComponents,
     } = params;
 
-    const project = await this.Service.assertActiveProject(userId, projectId);
-    const languageIds = this.Service.getProjectLanguageIds(project);
+    const project = await this.projectAccessService.assertActiveProject(userId, projectId);
+    const languageIds = this.projectAccessService.getProjectLanguageIds(project);
 
     const searchParams: { $regex: string; $options?: string } | string = { $regex: searchQuery };
 
@@ -118,9 +120,9 @@ export class SearchService {
       })
       .lean();
 
-    const tree = this.KeyHelperService.buildHierarchy([...allMatchesParents], projectId);
+    const tree = this.keyTreeService.buildHierarchy([...allMatchesParents], projectId);
 
-    const [values] = await this.Service.getAggregatedValues(
+    const [values] = await this.keyValueService.getAggregatedValues(
       userId,
       projectId,
       allMatchedKeys.map(({ parentId }) => parentId),

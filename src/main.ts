@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import session from 'express-session';
 import cookieParser from 'cookie-parser';
 import MongoStore from 'connect-mongo';
@@ -18,6 +19,13 @@ async function bootstrap() {
     logger: ['error', 'warn'],
   });
   app.useGlobalFilters(new ProblemDetailsExceptionFilter());
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    transform: true,
+    transformOptions: {
+      enableImplicitConversion: true,
+    },
+  }));
 
   app.enableCors({
     origin: config.FRONTEND_URL,

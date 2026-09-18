@@ -9,7 +9,7 @@ interface IComponentStructure {
 }
 
 @Injectable()
-export class KeyHelperService {
+export class KeyTreeService {
   buildHierarchy(data, rootId) {
     const map = new Map();
 
