@@ -24,7 +24,7 @@ export const ProjectSchema = new mongoose.Schema({
     type: [TagSchema],
     default: []
   },
-});
+}, { strict: true });
 
 ProjectSchema.index({ userId: 1, deletedAt: 1 });
 ProjectSchema.index({ userId: 1, projectId: 1, deletedAt: 1 });

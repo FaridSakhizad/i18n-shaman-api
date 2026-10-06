@@ -10,4 +10,4 @@ export const LanguageSchema = new mongoose.Schema({
   customLabelEnabled: Boolean,
   customCode: String,
   customLabel: String,
-});
+}, { strict: true });

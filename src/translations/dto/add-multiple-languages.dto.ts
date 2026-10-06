@@ -1,6 +1,38 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsString, ValidateNested } from 'class-validator';
-import { AddLanguageDto } from './add-language.dto';
+import { IsArray, IsBoolean, IsOptional, IsString, ValidateNested } from 'class-validator';
+
+export class AddProjectLanguageDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  label: string;
+
+  @IsString()
+  code: string;
+
+  @IsBoolean()
+  baseLanguage: boolean;
+
+  @IsBoolean()
+  visible: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  customCodeEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  customLabelEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  customCode?: string;
+
+  @IsOptional()
+  @IsString()
+  customLabel?: string;
+}
 
 export class AddMultipleLanguagesDto {
   @IsString()
@@ -8,6 +40,6 @@ export class AddMultipleLanguagesDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => AddLanguageDto)
-  languages: AddLanguageDto[];
+  @Type(() => AddProjectLanguageDto)
+  languages: AddProjectLanguageDto[];
 }
