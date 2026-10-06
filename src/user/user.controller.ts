@@ -3,9 +3,9 @@ import { UserService } from './user.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { VerifiedEmailGuard } from '../auth/verified-email.guard';
 import { CurrentUserId } from '../auth/current-user-id.decorator';
-import { SetLanguageDto, SetPreferencesDto } from './dto/setLanguage.dto';
+import { SetLanguageDto, SetPreferencesDto } from './dto/set-language.dto';
 import { createApiResponse } from '../common/http-response';
-import { ApiResponse } from '../interfaces';
+import { ApiResponse } from '../common/api-response.interface';
 
 @Controller('user')
 @UseGuards(AuthGuard, VerifiedEmailGuard)

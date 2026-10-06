@@ -6,7 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ProblemDetails } from '../interfaces';
+import { ProblemDetails } from './api-response.interface';
 import { getLogger } from './logger';
 
 type ExceptionResponse = string | {

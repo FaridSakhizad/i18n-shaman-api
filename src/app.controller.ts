@@ -2,7 +2,7 @@ import { Controller, Get, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { AppService } from './app.service';
 import { createApiResponse } from './common/http-response';
-import { ApiResponse } from './interfaces';
+import { ApiResponse } from './common/api-response.interface';
 
 @Controller()
 export class AppController {

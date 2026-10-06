@@ -4,13 +4,13 @@ import { VerifiedEmailGuard } from '../auth/verified-email.guard';
 import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { SearchService } from './search.service';
 import { createApiResponse } from '../common/http-response';
-import { ApiResponse } from '../interfaces';
+import { ApiResponse } from '../common/api-response.interface';
 import { ISearchResponse } from './dto/project-api.dto';
 import { withOperationLog } from '../common/logger';
 
 @Controller()
 export class SearchController {
-  constructor(private readonly SearchService: SearchService) {}
+  constructor(private readonly searchService: SearchService) {}
 
   @Get('search')
   @UseGuards(AuthGuard, VerifiedEmailGuard)
@@ -37,7 +37,7 @@ export class SearchController {
       inValues: inValues !== 'false',
       inFolders: inFolders !== 'false',
       inComponents: inComponents !== 'false',
-    }, () => this.SearchService.performSearch({
+    }, () => this.searchService.performSearch({
       userId,
       projectId,
       searchQuery,

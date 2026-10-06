@@ -13,6 +13,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod:pretty": "node dist/main | pino-pretty",
     "start:prod": "node dist/main",
+    "seed:languages": "node dist/scripts/seed-raw-languages.js",
+    "seed:languages:dev": "ts-node -r tsconfig-paths/register src/scripts/seed-raw-languages.ts",
     "logs:pretty": "journalctl -u i18nshaman-api -f -o cat | pino-pretty",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest",

@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { ApiResponse } from '../interfaces';
+import { ApiResponse } from './api-response.interface';
 
 export function createApiResponse<T>(req: Request, data: T): ApiResponse<T> {
   return {

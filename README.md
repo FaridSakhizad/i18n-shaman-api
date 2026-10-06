@@ -11,5 +11,6 @@ NestJS backend for the i18nshaman localization workspace.
 ## Local Notes
 
 - Runtime configuration is loaded from environment variables.
+- API architecture is documented in `ARCHITECTURE.md`.
 - API response conventions are documented in `API_CONTRACT.md`.
 - Translation data ownership and lifecycle notes are documented in `DATA_MODEL.md`.
