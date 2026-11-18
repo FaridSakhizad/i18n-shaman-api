@@ -6,6 +6,7 @@ import { IKey } from './interfaces/key.interface';
 import { IKeyValue } from './interfaces/keyValue.interface';
 import { ProjectAccessService } from './project-access.service';
 import { KeyValueService } from './key-value.service';
+import { escapeRegExp } from '../common/regex';
 
 @Injectable()
 export class EntityService {
@@ -468,15 +469,11 @@ export class EntityService {
     };
   }
 
-  private escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
   private getPathCacheContainsEntityFilter(entityIds: string[]) {
     return {
       $or: entityIds.map((id) => ({
         pathCache: {
-          $regex: `(^|/)${this.escapeRegExp(id)}(/|$)`,
+          $regex: `(^|/)${escapeRegExp(id)}(/|$)`,
         },
       })),
     };

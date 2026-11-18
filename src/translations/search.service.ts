@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Model } from 'mongoose';
 import { IKey } from './interfaces/key.interface';
 import { IKeyValue } from './interfaces/keyValue.interface';
@@ -6,6 +6,7 @@ import { ISearchParams } from './interfaces/searchParams.interface';
 import { KeyTreeService } from './key-tree.service';
 import { ProjectAccessService } from './project-access.service';
 import { KeyValueService } from './key-value.service';
+import { escapeRegExp } from '../common/regex';
 
 @Injectable()
 export class SearchService {
@@ -35,14 +36,19 @@ export class SearchService {
     const project = await this.projectAccessService.assertActiveProject(userId, projectId);
     const languageIds = this.projectAccessService.getProjectLanguageIds(project);
 
-    const searchParams: { $regex: string; $options?: string } | string = { $regex: searchQuery };
+    if (typeof searchQuery !== 'string' || searchQuery.length === 0) {
+      throw new BadRequestException('Search query is required');
+    }
+
+    const escapedSearchQuery = escapeRegExp(searchQuery);
+    const searchParams: { $regex: string; $options?: string } = { $regex: escapedSearchQuery };
 
     if (!caseSensitive) {
       searchParams.$options = 'i';
     }
 
     if (exact) {
-      searchParams.$regex = `^${searchQuery}$`;
+      searchParams.$regex = `^${escapedSearchQuery}$`;
       searchParams.$options = caseSensitive ? null : 'i';
     }
 

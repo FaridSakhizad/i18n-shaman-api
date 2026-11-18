@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { escapeAndroidString, toAndroidResourceName } from './export-escaping';
 
 interface IKeyFolderStructure {
   [key: string]: any;
@@ -88,76 +89,6 @@ export class KeyTreeService {
 
           if (item.type === 'folder') {
             parent.children[key.label] = key.children;
-          }
-        }
-      }
-    });
-
-    return result;
-  }
-
-  buildHierarchyForXmlExport(
-    keysDataArray,
-    valuesDataTree,
-    rootId,
-    languageId,
-  ): {
-    localesData: IKeyFolderStructure;
-    componentsData: IComponentStructure;
-  } {
-    const keysDataMap = new Map();
-
-    keysDataArray.forEach((item) => {
-      keysDataMap.set(item.id, { ...item, children: {} });
-    });
-
-    const result: {
-      localesData: IKeyFolderStructure;
-      componentsData: IComponentStructure;
-    } = {
-      localesData: {},
-      componentsData: {},
-    };
-
-    keysDataArray.forEach((item) => {
-      if (item.parentId === rootId) {
-        const key = keysDataMap.get(item.id);
-
-        const xmlReadyLabel = key.label.toLowerCase().replaceAll(' ', '-');
-
-        if (item.type === 'string') {
-          const { value = '' } = valuesDataTree[key.id] && valuesDataTree[key.id][languageId] ? valuesDataTree[key.id][languageId] : {};
-
-          result.localesData[xmlReadyLabel] = {
-            _text: value,
-          };
-        }
-
-        if (item.type === 'folder') {
-          result.localesData[xmlReadyLabel] = key.children;
-        }
-
-        if (item.type === 'component') {
-          result.componentsData[xmlReadyLabel] = key.children;
-        }
-      } else {
-        const parent = keysDataMap.get(item.parentId);
-
-        if (parent) {
-          const key = keysDataMap.get(item.id);
-
-          const xmlReadyLabel = key.label.toLowerCase().replaceAll(' ', '-');
-
-          if (item.type === 'string') {
-            const { value = '' } = valuesDataTree[key.id] && valuesDataTree[key.id][languageId] ? valuesDataTree[key.id][languageId] : {};
-
-            parent.children[xmlReadyLabel] = {
-              _text: value,
-            };
-          }
-
-          if (item.type === 'folder') {
-            parent.children[xmlReadyLabel] = key.children;
           }
         }
       }
@@ -315,12 +246,12 @@ export class KeyTreeService {
           type: 'element',
           name: 'string',
           attributes: {
-            name: labelArray.join('.'),
+            name: toAndroidResourceName(labelArray.join('.')),
           },
           elements: [
             {
               type: 'text',
-              text: value,
+              text: escapeAndroidString(value),
             },
           ],
         });
@@ -329,12 +260,12 @@ export class KeyTreeService {
           type: 'element',
           name: 'string',
           attributes: {
-            name: labelArray.join('.'),
+            name: toAndroidResourceName(labelArray.join('.')),
           },
           elements: [
             {
               type: 'text',
-              text: value,
+              text: escapeAndroidString(value),
             },
           ],
         });

@@ -1,0 +1,28 @@
+# Local development dependencies for the i18nShaman API.
+# Starts MongoDB and Mailpit (a local SMTP server with a web inbox).
+#
+#   docker compose up -d
+#
+# Mailpit inbox: http://localhost:8025
+
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: i18nshaman
+      MONGO_INITDB_ROOT_PASSWORD: i18nshaman
+    volumes:
+      - mongo-data:/data/db
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  mongo-data:

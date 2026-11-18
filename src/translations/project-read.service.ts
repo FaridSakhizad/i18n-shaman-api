@@ -14,6 +14,7 @@ import { IKeyValue } from './interfaces/keyValue.interface';
 import { GetProjectByIdDto } from './dto/get-project-by-id.dto';
 import { ProjectAccessService } from './project-access.service';
 import { KeyValueService } from './key-value.service';
+import { escapeRegExp } from '../common/regex';
 
 @Injectable()
 export class ProjectReadService {
@@ -55,7 +56,7 @@ export class ProjectReadService {
       filters,
       tags = [],
       searchQuery,
-      searchParams,
+      searchParams = [],
     } = params;
 
     const project = await this.projectModel
@@ -71,6 +72,10 @@ export class ProjectReadService {
 
     if (subFolderId && subFolderId !== projectId) {
       subfolderModel = await this.keyModel.findOne({ userId, projectId, id: subFolderId });
+
+      if (!subfolderModel) {
+        throw new NotFoundException('Folder not found');
+      }
 
       const parentIds = subfolderModel.pathCache.replace('#', projectId).split('/');
 
@@ -194,7 +199,7 @@ export class ProjectReadService {
                     $map: {
                       input: '$values',
                       as: 'val',
-                      in: { $eq: ['$$val.content', ''] },
+                      in: { $eq: [{ $ifNull: ['$$val.value', ''] }, ''] },
                     },
                   },
                 },
@@ -347,14 +352,16 @@ export class ProjectReadService {
     if (searchQuery && searchQuery.length > 0) {
       searchDbQueryParams = {};
 
-      searchDbQueryParams.$regex = searchQuery;
+      const escapedSearchQuery = escapeRegExp(String(searchQuery));
+
+      searchDbQueryParams.$regex = escapedSearchQuery;
 
       if (!searchParamsData[ESearchParams.caseSensitive]) {
         searchDbQueryParams.$options = 'i';
       }
 
       if (searchParamsData[ESearchParams.exactMatch]) {
-        searchDbQueryParams.$regex = `^${searchQuery}$`;
+        searchDbQueryParams.$regex = `^${escapedSearchQuery}$`;
       }
 
       if (

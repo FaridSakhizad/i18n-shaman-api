@@ -8,6 +8,7 @@ import { IProject, IStructuredProjectData } from './interfaces/project.interface
 import { KeyTreeService } from './key-tree.service';
 import { ProjectAccessService } from './project-access.service';
 import { KeyValueService } from './key-value.service';
+import { escapeAppleStrings } from './export-escaping';
 
 @Injectable()
 export class ExportService {
@@ -84,7 +85,7 @@ export class ExportService {
 
       const xmlLocalesData = {
         ...declaration,
-        elements: localesData,
+        elements: [this.wrapInAndroidResources(localesData)],
       };
 
       const xmlLocalesString = js2xml(xmlLocalesData, { compact: false, ignoreComment: true, spaces: 2 });
@@ -93,7 +94,7 @@ export class ExportService {
       for (const [componentName, componentData] of Object.entries(componentsData)) {
         const xmlComponentData = {
           ...declaration,
-          elements: componentData,
+          elements: [this.wrapInAndroidResources(componentData)],
         };
 
         const xmlComponentsString = js2xml(xmlComponentData, { compact: false, ignoreComment: true, spaces: 2 });
@@ -130,18 +131,30 @@ export class ExportService {
         };
       };
 
-      const result = localesData.map(({ key, value }) => `"${key}" = "${value}";`);
+      const result = localesData.map(({ key, value }) => this.toAppleStringsLine(key, value));
 
       archive.append(result.join('\n'), { name: `${containerName}.strings` });
 
       for (const [componentName, componentData] of Object.entries(componentsData)) {
-        const txtComponentsString = componentData.map(({ key, value }) => `"${key}" = "${value}";`).join('\n');
+        const txtComponentsString = componentData.map(({ key, value }) => this.toAppleStringsLine(key, value)).join('\n');
 
         archive.append(txtComponentsString, { name: `${containerName}/${componentName}.strings` });
       }
     }
 
     await archive.finalize();
+  }
+
+  private toAppleStringsLine(key: string, value: string): string {
+    return `"${escapeAppleStrings(key)}" = "${escapeAppleStrings(value)}";`;
+  }
+
+  private wrapInAndroidResources(elements: unknown) {
+    return {
+      type: 'element',
+      name: 'resources',
+      elements: Array.isArray(elements) ? elements : [],
+    };
   }
 
   private async getStructuredObjectFromProject(userId: string, project: IProject): Promise<any> {
